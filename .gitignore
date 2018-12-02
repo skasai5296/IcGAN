@@ -1,5 +1,7 @@
 **/__pycache__
 **/*.pyc
+**/*.swp
+**/.ipynb_checkpoints
 model/
 out/
 corpus/
