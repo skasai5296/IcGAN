@@ -6,6 +6,9 @@ import warnings
 import numpy as np
 import nltk
 
+import torch
+from model
+
 nltk.download('wordnet')
 nltk.download('averaged_perceptron_tagger')
 
@@ -122,6 +125,9 @@ while True:
             minattr = attr
             maxcos = cosine
     print('{}th attribute to be modified'.format(minidx+1))
+    print(cosine_sim(data, 'make' 'more'))
+    print(cosine_sim(data, 'make' 'more'))
+
 
 
 
