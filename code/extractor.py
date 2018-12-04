@@ -46,6 +46,8 @@ class Command():
 
     def get_attributes_descriptions(self):
         cnt = 0
+        self.att = None
+        self.des = None
         for w, p in zip(self.word, self.pos):
             if cnt == len(pos) - 1:
                 break
