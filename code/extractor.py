@@ -112,11 +112,13 @@ print(cosine_sim(data, 'black', 'gray'))
 
 attrs = Attributes()
 attributes, descriptions = attrs.get_attributes_descriptions('''attributes.txt''')
+print(attributes, descriptions)
 
 while True:
     command = Command()
     command.reset_command(input())
     word, pos = command.pos_tag_sequence()
+    print(pos)
     att, des = command.get_attributes_descriptions()
     cnt = 0
     maxcos = -1
