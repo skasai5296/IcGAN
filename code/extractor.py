@@ -121,12 +121,12 @@ while True:
     cnt = 0
     maxcos = -1
     for attr, desc in zip(attributes, descriptions):
-        cosine = ( cossim(data, attr, att) + cossim(data, desc, des) ) / 2
+        cosine = ( cosine_sim(data, attr, att) + cosine_sim(data, desc, des) ) / 2
         if cosine > maxcos:
             minidx = cnt
             minattr = attr
             maxcos = cosine
-    print('{}th attribute to be modified'.format(minidx+1))
+    print('{}th attribute to be modified'.format(minidx+1), flush=True)
     print(cosine_sim(data, 'make' 'more'))
     print(cosine_sim(data, 'make' 'more'))
 
