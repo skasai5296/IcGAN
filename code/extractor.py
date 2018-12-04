@@ -19,7 +19,7 @@ class Command():
             print('Input a command: ')
             self.command = input()
             self.reset_command(self.command)
-            get_cleaned_tokens(self)
+            self.get_cleaned_tokens(self)
             if len(self.cleaned) < 3:
                 warnings.warn('Command sequence is too short. Input a longer sequence')
                 print('reinput: ')
