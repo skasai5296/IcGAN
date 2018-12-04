@@ -17,9 +17,8 @@ class Command():
     def __init__(self):
         while True:
             print('Input a command: ')
-            self.command = input()
-            self.reset_command(self.command)
-            self.get_cleaned_tokens(self)
+            self.reset_command(input())
+            self.get_cleaned_tokens()
             if len(self.cleaned) < 3:
                 warnings.warn('Command sequence is too short. Input a longer sequence')
                 print('reinput: ')
