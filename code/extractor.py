@@ -11,12 +11,17 @@ nltk.download('averaged_perceptron_tagger')
 
 
 class Command():
-    def __init__(self, command):
-        self.command = command
-        reset_command(self.command)
-        get_cleaned_tokens(self)
-        if len(self.cleaned) < 3:
-            warnings.warn('Command sequence is too short. Input a longer sequence')
+    def __init__(self):
+        while True:
+            print('Input a command: ')
+            self.command = input()
+            self.reset_command(self.command)
+            get_cleaned_tokens(self)
+            if len(self.cleaned) < 3:
+                warnings.warn('Command sequence is too short. Input a longer sequence')
+                print('reinput: ')
+                self.command = input()
+            else break
 
     def reset_command(self, command):
         self.command = command
@@ -35,6 +40,21 @@ class Command():
             self.word.append(i[0])
             self.pos.append(i[1])
         return self.word, self.pos
+
+    def get_attributes_descriptions(self):
+        cnt = 0
+        for w, p in zip(self.word, self.pos):
+            if cnt == len(pos) - 1:
+                break
+            elif p[:2] == 'NN':
+                if p[cnt+1][:2] == 'JJ' or p[cnt+1][:2] == 'RB':
+                    self.att = w
+                    self.des = word[cnt+1]
+                elif p[cnt-1][:2] == 'JJ':
+                    self.att = word[cnt-1]
+                    self.des = w
+            cnt += 1
+        return self.att, self.des
 
 
 class Attributes():
@@ -64,8 +84,7 @@ def cosine_sim(embedding, w1, w2):
         sim = np.sum(vec1 * vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
         return sim
     except LookupError:
-        print('could not calculate cosine_sim because of lack of word in dictionary')
-        return None
+        return -1
 
 
 def load_vectors(fname):
@@ -84,43 +103,28 @@ def load_vectors(fname):
 '''load vectors from path'''
 path = '''../corpus/crawl-300d-2M-subword.vec'''
 data = load_vectors(path)
-print(cosine_sim(data, 'red', 'blue'))
 print(cosine_sim(data, 'black', 'gray'))
-command = Command('Change her hair red! %A& )$')
-comseg = command.pos_tag_sequence()
-print(comseg)
 
 attrs = Attributes()
 attributes, descriptions = attrs.get_attributes_descriptions('''attributes.txt''')
 
 while True:
+    command = Command()
     command.reset_command(input())
     word, pos = command.pos_tag_sequence()
+    att, des = command.get_attributes_descriptions()
     cnt = 0
-    for w, p in zip(word, pos):
-        if cnt == len(pos):
-            break
-        if p[:2] == 'NN':
-            if p[cnt+1][:2] == 'JJ' or p[cnt+1][:2] == 'RB':
-                att = w
-                des = word[cnt+1]
-            elif p[cnt-1][:2] == 'JJ':
-                att = word[cnt-1]
-                des = w
-        cnt += 1
+    maxcos = -1
+    for attr, desc in zip(attributes, descriptions):
+        cosine = ( cossim(data, attr, att) + cossim(data, desc, des) ) / 2
+        if cosine > maxcos:
+            minidx = cnt
+            minattr = attr
+            maxcos = cosine
+    print('{}th attribute to be modified'.format(minidx+1))
 
 
 
-maxcos = 1
-
-cnt = 0
-for attr, desc in zip(attributes, descriptions):
-    cosine = cossim(data, attr, att)
-    if cosine < maxcos:
-        minidx = cnt
-        minattr = attr
-        maxcos = cosine
-    cnt += 1
 maxtarword = comseg[maxidx]
 maxattrword = attributes[maxattr][maxidx]
 

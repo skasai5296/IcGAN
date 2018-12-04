@@ -6,3 +6,4 @@ model/
 out/
 corpus/
 code/runs/
+**/.DS_Store
