@@ -7,7 +7,7 @@ import numpy as np
 import nltk
 
 import torch
-from model
+from model import *
 
 nltk.download('wordnet')
 nltk.download('averaged_perceptron_tagger')
