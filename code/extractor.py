@@ -24,7 +24,8 @@ class Command():
                 warnings.warn('Command sequence is too short. Input a longer sequence')
                 print('reinput: ')
                 self.command = input()
-            else break
+            else:
+                break
 
     def reset_command(self, command):
         self.command = command
