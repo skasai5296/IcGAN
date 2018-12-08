@@ -53,7 +53,7 @@ class Command():
         for w, p in zip(self.word, self.pos):
             if cnt == len(self.pos) - 1:
                 if self.att is None:
-                    idx = random.randint(0, len(self.word) - 1)
+                    idx = random.randint(0, len(self.word) - 2)
                     self.att = self.word[idx]
                     self.des = self.word[idx+1]
                     print('randomly choosing attributes', flush=True)
@@ -154,10 +154,10 @@ while True:
         cosine = ( cosine_sim(data, attr, att) + cosine_sim(data, desc, des) ) / 2
         print(cosine, flush=True)
         if cosine >= maxcos:
-            print('mod', flush=True)
             minidx = cnt
             minattr = attr
             maxcos = cosine
+        cnt += 1
     print('{}th attribute to be modified'.format(minidx+1), flush=True)
     print(cosine_sim(data, 'make', 'more'))
     print(cosine_sim(data, 'make', 'less'))
