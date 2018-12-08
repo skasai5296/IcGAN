@@ -2,9 +2,11 @@ import os
 import time
 import io
 import warnings
+import random
 
 import numpy as np
 import nltk
+import pickle
 
 import torch
 from model import *
@@ -49,13 +51,20 @@ class Command():
         self.att = None
         self.des = None
         for w, p in zip(self.word, self.pos):
-            if cnt == len(pos) - 1:
+            if cnt == len(self.pos) - 1:
+                if self.att is None:
+                    idx = random.randint(0, len(self.word) - 1)
+                    self.att = self.word[idx]
+                    self.des = self.word[idx+1]
+                    print('randomly choosing attributes', flush=True)
+                else:
+                    print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
                 break
             elif p[:2] == 'NN':
-                if p[cnt+1][:2] == 'JJ' or p[cnt+1][:2] == 'RB':
+                if self.pos[cnt+1][:2] in ['JJ', 'RB', 'NN']:
                     self.att = w
                     self.des = word[cnt+1]
-                elif p[cnt-1][:2] == 'JJ':
+                elif self.pos[cnt-1][:2] == 'JJ':
                     self.att = word[cnt-1]
                     self.des = w
             cnt += 1
@@ -91,9 +100,7 @@ def cosine_sim(embedding, w1, w2):
     except LookupError:
         return -1
 
-
-def load_vectors(fname):
-    print('loading vectors...', flush=True)
+def save_vectors(fname, picklepath):
     before = time.time()
     fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
     n, d = list(map(int, fin.readline().split()))
@@ -101,13 +108,35 @@ def load_vectors(fname):
     for line in fin:
         tokens = line.rstrip().split(' ')
         data[tokens[0]] = list(map(float, tokens[1:]))
-    print('Done, {}s taken'.format(time.time() - before), flush=True)
-    return data
+    max_bytes = 2**31 - 1
+    bindata = pickle.dumps(data)
+    binsize = len(bindata)
+    with open(picklepath, 'wb') as f:
+        for idx in range(0, binsize, max_bytes):
+            f.write(bindata[idx:idx+max_bytes])
+    print('Done pickling data, {}s taken'.format(time.time() - before), flush=True)
+    return binsize
 
+def load_vectors(picklepath):
+    print('loading vectors...', flush=True)
+    before = time.time()
+    bindata = bytearray()
+    binsize = os.path.getsize(picklepath)
+    max_bytes = 2**31 - 1
+    with open(picklepath, 'rb') as f:
+        for _ in range(0, binsize, max_bytes):
+            bindata += f.read(max_bytes)
+    data = pickle.loads(bindata)
+    print('Done loading pickled data, {}s taken'.format(time.time() - before), flush=True)
+    return data
 
 '''load vectors from path'''
 path = '''../corpus/crawl-300d-2M-subword.vec'''
-data = load_vectors(path)
+picklepath = '''../corpus/embeddings.pkl'''
+if not os.path.exists(picklepath):
+    save_vectors(path, picklepath)
+data = load_vectors(picklepath)
+
 print(cosine_sim(data, 'black', 'gray'))
 
 attrs = Attributes()
@@ -116,7 +145,6 @@ print(attributes, descriptions)
 
 while True:
     command = Command()
-    command.reset_command(input())
     word, pos = command.pos_tag_sequence()
     print(pos)
     att, des = command.get_attributes_descriptions()
@@ -124,13 +152,15 @@ while True:
     maxcos = -1
     for attr, desc in zip(attributes, descriptions):
         cosine = ( cosine_sim(data, attr, att) + cosine_sim(data, desc, des) ) / 2
-        if cosine > maxcos:
+        print(cosine, flush=True)
+        if cosine >= maxcos:
+            print('mod', flush=True)
             minidx = cnt
             minattr = attr
             maxcos = cosine
     print('{}th attribute to be modified'.format(minidx+1), flush=True)
-    print(cosine_sim(data, 'make' 'more'))
-    print(cosine_sim(data, 'make' 'more'))
+    print(cosine_sim(data, 'make', 'more'))
+    print(cosine_sim(data, 'make', 'less'))
 
 
 
