@@ -63,7 +63,7 @@ def train(args):
 
     noise = torch.randn((args.batch_size, args.nz)).to(device)
 
-    if args.tensorboard:
+    if args.use_tensorboard:
         writer.add_text("Text", "begin training, lr={}".format(args.learning_rate))
     print("begin training, lr={}".format(args.learning_rate), flush=True)
     stepcnt = 0
@@ -110,7 +110,7 @@ def train(args):
 
             '''log the losses and images, get time of loop'''
             if it % args.log_every == (args.log_every - 1):
-                if args.tensorboard:
+                if args.use_tensorboard:
                     writer.add_scalar('y loss', loss_y, stepcnt+1)
                     writer.add_scalar('z loss', loss_z, stepcnt+1)
 
@@ -120,7 +120,7 @@ def train(args):
             stepcnt += 1
 
         print("epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), flush=True)
-        if args.tensorboard:
+        if args.use_tensorboard:
             writer.add_text("epoch loss", "epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), ep+1)
 
 
