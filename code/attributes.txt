@@ -1,40 +1,40 @@
-beard more
-eyebrow arched
-attractive more
-eyes more
-hair less
-bangs more
-lips more
-nose more
-hair black
-hair blond
-blurry more
-hair brown
-eyebrow more
-chubby more
-chin double
-glasses more
-goatee more
-hair gray
-makeup more
-cheekbones high
-male more
-mouth open
-mustache more
-eyes narrow
-beard less
-face round
-skin white
-nose sharp
-hairline receded
-cheek pink
-sideburn more
-smile more
-hair straight
-hair wavy
-earrings more
-hat more
-lip red
-necklace more
-necktie more
-young more
+beard more less
+eyebrow arched straight
+attractive more less
+eyes more less
+hair less more
+bangs more less
+lips more less
+nose more less
+hair black blond
+hair blond black
+blurry more less
+hair brown blond
+eyebrow more less
+chubby more less
+chin double single
+glasses more less
+goatee more less
+hair gray blond
+makeup more less
+cheekbones high low
+male more less
+mouth open close
+mustache more less
+eyes narrow wide
+beard less more
+face round sharp
+skin white black
+nose sharp round
+bangs less more
+cheek pink pale
+sideburn more less
+smile more less
+hair straight curly
+hair wavy straight
+earrings more less
+hat more less
+lip red pale
+necklace more less
+necktie more less
+young more less

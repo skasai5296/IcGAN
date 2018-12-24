@@ -42,21 +42,21 @@ class Encoder(nn.Module):
         if for_y:
             self.model = nn.Sequential(
                     Conv(3, 32, ksize=5, padding=2),
-                    BN(32),
+                    Normalization(32),
                     Activation(),
                     Conv(32, 64, ksize=5, padding=2),
-                    BN(64),
+                    Normalization(64),
                     Activation(),
                     Conv(64, 128, ksize=5, padding=2),
-                    BN(128),
+                    Normalization(128),
                     Activation(),
                     Conv(128, 256, ksize=5, padding=2),
-                    BN(256),
+                    Normalization(256),
                     Activation(),
                     )
             self.linear = nn.Sequential(
                     Dense(256*4*4, 512),
-                    BN(512, dim=1),
+                    Normalization(512, dim=1),
                     Activation(),
                     Dense(512, ftnum),
                     Activation(option='Sigmoid')
@@ -65,21 +65,21 @@ class Encoder(nn.Module):
         else:
             self.model = nn.Sequential(
                     Conv(3, 32, ksize=5, padding=2),
-                    BN(32),
+                    Normalization(32),
                     Activation(),
                     Conv(32, 64, ksize=5, padding=2),
-                    BN(64),
+                    Normalization(64),
                     Activation(),
                     Conv(64, 128, ksize=5, padding=2),
-                    BN(128),
+                    Normalization(128),
                     Activation(),
                     Conv(128, 256, ksize=5, padding=2),
-                    BN(256),
+                    Normalization(256),
                     Activation(),
                     )
             self.linear = nn.Sequential(
                     Dense(256*4*4, 4096),
-                    BN(4096, dim=1),
+                    Normalization(4096, dim=1),
                     Activation(),
                     Dense(4096, ftnum),
                     Activation(option='Sigmoid')
@@ -97,6 +97,7 @@ class Generator(nn.Module):
     inputs:
         z (bs x nz)
         y' (bs x ny)
+        in_c = nz+ny
     outputs:
         x' (bs x 3 x 64 x 64)
     '''
@@ -104,16 +105,16 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
                            Deconv(in_c, 512, padding=0),
-                           BN(512),
+                           Normalization(512),
                            Activation(),
                            Deconv(512, 256),
-                           BN(256),
+                           Normalization(256),
                            Activation(),
                            Deconv(256, 128),
-                           BN(128),
+                           Normalization(128),
                            Activation(),
                            Deconv(128, 64),
-                           BN(64),
+                           Normalization(64),
                            Activation(),
                            Deconv(64, 3),
                            Activation(option='Tanh')
@@ -141,13 +142,13 @@ class Discriminator(nn.Module):
                           )
         self.model = nn.Sequential(
                           Conv(64+ny, 128),
-                          BN(128),
+                          Normalization(128),
                           Activation(option='LeakyReLU'),
                           Conv(128, 256),
-                          BN(256),
+                          Normalization(256),
                           Activation(option='LeakyReLU'),
                           Conv(256, 512),
-                          BN(512),
+                          Normalization(512),
                           Activation(option='LeakyReLU'),
                           Conv(512, 1, stride=1, padding=0),
                           Activation(option='Sigmoid')
@@ -165,6 +166,33 @@ class Discriminator(nn.Module):
         out2 = self.model(out_cat)
         return out2.view(-1)
 
+class Resblock(nn.Module):
+    '''
+    Residual Block.
+    conv-normalization-activation-conv-normalization-activation
+    '''
+    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
+        super(Resblock, self).__init__()
+        self.model = nn.Sequential(
+                 Conv(in_c, in_c, ksize=3, stride=1),
+                 Normalization(in_c, method=norm_method),
+                 Activation(option=act),
+                 Conv(in_c, in_c, ksize=3, stride=1),
+                 Normalization(in_c, method=norm_method),
+                 Activation(option=act)
+                 )
+    def forward(self, x):
+        return x + self.model(x)
+
+class Down(nn.Module):
+    '''
+    Downsampling Layer
+    conv-normalization-activation
+    '''
+
+
+
+
 
 def Deconv(in_c, out_c, padding=1):
     return nn.ConvTranspose2d(in_c, out_c, 4, stride=2, padding=padding)
@@ -172,11 +200,16 @@ def Deconv(in_c, out_c, padding=1):
 def Conv(in_c, out_c, ksize=4, stride=2, padding=1):
     return nn.Conv2d(in_c, out_c, ksize, stride=stride, padding=padding)
 
-def BN(C, dim=2):
-    if dim == 2:
-        return nn.BatchNorm2d(C)
-    elif dim == 1:
-        return nn.BatchNorm1d(C)
+def Normalization(C, dim=2, method='Batchnorm'):
+    if method == 'Batchnorm':
+        if dim == 2:
+            return nn.BatchNorm2d(C)
+        elif dim == 1:
+            return nn.BatchNorm1d(C)
+    elif method == 'Instancenorm':
+        return nn.InstanceNorm2d(C)
+    else:
+        raise NotImplementedError()
 
 def Activation(option='ReLU'):
     if option == 'ReLU':
@@ -192,7 +225,6 @@ def Activation(option='ReLU'):
 
 def Dense(in_n, out_n):
     return nn.Linear(in_n, out_n)
-
 
 def init_weights(m, std=0.01):
     if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):

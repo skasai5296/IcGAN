@@ -221,6 +221,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', type=bool, default=True)
+    parser.add_argument('--image_size', type=int, default=64)
     parser.add_argument('--log_name', type=str, default='')
     parser.add_argument('--log_every', type=int, default=10)
     parser.add_argument('--image_every', type=int, default=500)

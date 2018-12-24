@@ -1,4 +1,5 @@
 import os
+import argparse
 import time
 import io
 import warnings
@@ -9,6 +10,8 @@ import nltk
 import pickle
 
 import torch
+import torchvision.utils as vutils
+from torchvision import transforms
 from model import *
 
 nltk.download('wordnet')
@@ -17,14 +20,16 @@ nltk.download('averaged_perceptron_tagger')
 
 class Command():
     def __init__(self):
-        while True:
+        self.flag = True
+        while self.flag:
             print('Input a command: ')
             self.reset_command(input())
+            if self.command in ['quit', 'exit', 'q', 'end']:
+                self.flag = False
+                break
             self.get_cleaned_tokens()
             if len(self.cleaned) < 3:
                 warnings.warn('Command sequence is too short. Input a longer sequence')
-                print('reinput: ')
-                self.command = input()
             else:
                 break
 
@@ -53,12 +58,11 @@ class Command():
         for w, p in zip(self.word, self.pos):
             if cnt == len(self.pos) - 1:
                 if self.att is None:
-                    idx = random.randint(0, len(self.word) - 2)
-                    self.att = self.word[idx]
-                    self.des = self.word[idx+1]
+                    words = random.sample(self.word, 2)
+                    self.att = words[0]
+                    self.des = words[1]
                     print('randomly choosing attributes', flush=True)
-                else:
-                    print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
+                print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
                 break
             elif p[:2] == 'NN':
                 if self.pos[cnt+1][:2] in ['JJ', 'RB', 'NN']:
@@ -70,11 +74,11 @@ class Command():
             cnt += 1
         return self.att, self.des
 
-
 class Attributes():
     def __init__(self):
         self.attributes = []
         self.descriptions = []
+        self.descriptions_n = []
 
     def get_cleaned_tokens(self, line):
         tokens = line.rstrip().split()
@@ -88,7 +92,9 @@ class Attributes():
                 clean = self.get_cleaned_tokens(line)
                 self.attributes.append(clean[0])
                 self.descriptions.append(clean[1])
-        return self.attributes, self.descriptions
+                self.descriptions_n.append(clean[2])
+                cnt = i+1
+        return self.attributes, self.descriptions, self.descriptions_n, cnt
 
 
 def cosine_sim(embedding, w1, w2):
@@ -130,6 +136,16 @@ def load_vectors(picklepath):
     print('Done loading pickled data, {}s taken'.format(time.time() - before), flush=True)
     return data
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--impath', type=str, default='../../../local/CelebA/img_align_celeba/202599.jpg')
+parser.add_argument('--nz', type=int, default=100)
+parser.add_argument('--enc_y_path', type=str, default='../model/enc_y_epoch_30.model')
+parser.add_argument('--enc_z_path', type=str, default='../model/enc_z_epoch_30.model')
+parser.add_argument('--gen_path', type=str, default='../model/gen_epoch_200.model')
+parser.add_argument('--save_path', type=str, default='../out/')
+args = parser.parse_args()
+
+
 '''load vectors from path'''
 path = '''../corpus/crawl-300d-2M-subword.vec'''
 picklepath = '''../corpus/embeddings.pkl'''
@@ -140,32 +156,85 @@ data = load_vectors(picklepath)
 print(cosine_sim(data, 'black', 'gray'))
 
 attrs = Attributes()
-attributes, descriptions = attrs.get_attributes_descriptions('''attributes.txt''')
-print(attributes, descriptions)
+attributes, descriptions, descriptions_n, ftnum = attrs.get_attributes_descriptions('''attributes.txt''')
+print(attributes, descriptions, descriptions_n)
 
+a = []
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+enc_y = Encoder(ftnum, for_y=True)
+enc_z = Encoder(args.nz, for_y=False)
+gen = Generator(ftnum+args.nz)
+enc_y = enc_y.to(device)
+enc_z = enc_z.to(device)
+gen = gen.to(device)
+
+enc_y.load_state_dict(torch.load(args.enc_y_path))
+enc_z.load_state_dict(torch.load(args.enc_z_path))
+gen.load_state_dict(torch.load(modelpath))
+
+enc_y.eval()
+enc_z.eval()
+gen.eval()
+
+im = Image.open(args.impath)
+transform = transforms.Compose([
+    transforms.Resize((64, 64)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+])
+im_trans = transform(im)
+vutils.save_image(im_trans, args.save_path + 'before')
+im_trans = torch.unsqueeze(im_trans, 0)
+
+y = enc_y(im_trans)
+z = enc_z(im_trans)
+
+num = 1
 while True:
     command = Command()
+    if not command.flag:
+        break
     word, pos = command.pos_tag_sequence()
-    print(pos)
+    a.append(word)
+    a.append(pos)
     att, des = command.get_attributes_descriptions()
     cnt = 0
     maxcos = -1
-    for attr, desc in zip(attributes, descriptions):
-        cosine = ( cosine_sim(data, attr, att) + cosine_sim(data, desc, des) ) / 2
+    minidx = []
+    for i, attr in enumerate(attributes):
+        cosine = cosine_sim(data, attr[i], att)
         print(cosine, flush=True)
         if cosine >= maxcos:
-            minidx = cnt
-            minattr = attr
+            minidx.append(i)
+            minattr = attr[i]
             maxcos = cosine
+    print('attribute {} to be modified'.format(minattr), flush=True)
+
+    for i in minidx:
+        cp = cosine_sim(data, desc, descriptions[i])
+        cn = cosine_sim(data, desc, descriptions_n[i])
+        if cp > cn+0.2:
+            y[0, i] += 0.5
+            print('increase', flush=True)
+        elif cn > cp+0.2:
+            y[0, i] -= 0.5
+            print('decrease', flush=True)
+        else: pass
         cnt += 1
-    print('{}th attribute to be modified'.format(minidx+1), flush=True)
-    print(cosine_sim(data, 'make', 'more'))
-    print(cosine_sim(data, 'make', 'less'))
+
+    result = gen(z, y)
+    vutils.save_image(result, args.save_path + 'after_{}'.format(num))
+    print('saved image, {}th modification'.format(num))
+    num += 1
+
+
+
+if not command.flag:
+    print(a)
 
 
 
 
-maxtarword = comseg[maxidx]
-maxattrword = attributes[maxattr][maxidx]
 
-print('modify attribute {} having seen the word {} in the command, cossim = {}'.format(maxattrword, maxtarword, maxcos))
