@@ -191,7 +191,7 @@ class Down(nn.Module):
     (bs x C x H x W) -> (bs x 2C x H/2 x W/2)
     '''
     def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
-        super(Resblock, self).__init__()
+        super(Down, self).__init__()
         self.model = nn.Sequential(
                  Conv(in_c, in_c*2, ksize=3, stride=1),
                  Normalization(in_c*2, method=norm_method),
@@ -207,7 +207,7 @@ class Up(nn.Module):
     (bs x C x H x W) -> (bs x C//2 x 2H x 2W)
     '''
     def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
-        super(Resblock, self).__init__()
+        super(Up, self).__init__()
         self.model = nn.Sequential(
                  Deconv(in_c, in_c//2, ksize=3, stride=1),
                  Normalization(in_c//2, method=norm_method),
@@ -215,8 +215,6 @@ class Up(nn.Module):
                  )
     def forward(self, x):
         return self.model(x)
-
-
 
 
 
