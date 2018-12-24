@@ -18,7 +18,8 @@ from dataset import DeepFashion, CelebA, collate_fn, randomsample
 from model import Generator, Discriminator, Encoder, init_weights
 
 def train(args):
-    writer = SummaryWriter(comment=args.log_name)
+    if args.tensorboard:
+        writer = SummaryWriter(comment=args.log_name)
 
     device = torch.device(args.cuda_device if torch.cuda.is_available() else 'cpu')
 
@@ -50,7 +51,7 @@ def train(args):
     gen.load_state_dict(torch.load(modelpath))
 
     enc_y = Encoder(fsize).to(device)
-    enc_z = Encoder(args.nz).to(device)
+    enc_z = Encoder(args.nz, for_y=False).to(device)
 
     # initialize weights for encoders
     enc_y.apply(init_weights)
@@ -62,7 +63,8 @@ def train(args):
 
     noise = torch.randn((args.batch_size, args.nz)).to(device)
 
-    writer.add_text("Text", "begin training, lr={}".format(args.learning_rate))
+    if args.tensorboard:
+        writer.add_text("Text", "begin training, lr={}".format(args.learning_rate))
     print("begin training, lr={}".format(args.learning_rate), flush=True)
     stepcnt = 0
     gen.eval()
@@ -108,8 +110,9 @@ def train(args):
 
             '''log the losses and images, get time of loop'''
             if it % args.log_every == (args.log_every - 1):
-                writer.add_scalar('y loss', loss_y, stepcnt+1)
-                writer.add_scalar('z loss', loss_z, stepcnt+1)
+                if args.tensorboard:
+                    writer.add_scalar('y loss', loss_y, stepcnt+1)
+                    writer.add_scalar('z loss', loss_z, stepcnt+1)
 
                 after = time.time()
                 print("{}th iter\ty loss: {:.5f}\tz loss: {:.5f}\t{:.4f}s per loop".format(it+1, loss_y, loss_z, (after-elapsed) / args.log_every), flush=True)
@@ -117,7 +120,8 @@ def train(args):
             stepcnt += 1
 
         print("epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), flush=True)
-        writer.add_text("epoch loss", "epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), ep+1)
+        if args.tensorboard:
+            writer.add_text("epoch loss", "epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), ep+1)
 
 
         if ep % args.recon_every == (args.recon_every - 1):
@@ -148,8 +152,9 @@ def train(args):
             torch.save(enc_z.state_dict(), "../model/enc_z_epoch_{}.model".format(ep+1))
 
     print("end training")
-    writer.add_text("Text", "end training")
-    writer.close()
+    if args.use_tensorboard:
+        writer.add_text("Text", "end training")
+        writer.close()
 
 def main():
     '''
@@ -172,6 +177,7 @@ def main():
     '''
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--use_tensorboard', type=bool, default=False)
     parser.add_argument('--log_name', type=str, default='')
     parser.add_argument('--recon_every', type=int, default=2)
     parser.add_argument('--log_every', type=int, default=50)
