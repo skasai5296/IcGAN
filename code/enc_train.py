@@ -18,7 +18,7 @@ from dataset import DeepFashion, CelebA, collate_fn, randomsample
 from model import Generator, Discriminator, Encoder, init_weights
 
 def train(args):
-    if args.tensorboard:
+    if args.use_tensorboard:
         writer = SummaryWriter(comment=args.log_name)
 
     device = torch.device(args.cuda_device if torch.cuda.is_available() else 'cpu')
