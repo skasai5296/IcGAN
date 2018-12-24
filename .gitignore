@@ -7,3 +7,4 @@ out/
 corpus/
 code/runs/
 **/.DS_Store
+**/*.pkl
