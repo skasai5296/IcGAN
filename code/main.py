@@ -26,6 +26,8 @@ def train(args):
     # transforms applied
     transform = transforms.Compose([
                         transforms.Resize((64, 64)),
+                        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+                        transforms.RandomHorizontalFlip(),
                         transforms.ToTensor(),
                         transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
@@ -161,7 +163,9 @@ def train(args):
             if it % args.image_every == (args.image_every - 1):
                 im = gen(fixed_noise, fixed_label)
                 grid = vutils.make_grid(im, normalize=True)
-                writer.add_image('epoch {}'.format(ep+1), grid, stepcnt+1)
+
+                if args.use_tensorboard:
+                    writer.add_image('epoch {}'.format(ep+1), grid, stepcnt+1)
 
             stepcnt += 1
 
@@ -220,7 +224,7 @@ def main():
     '''
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--use_tensorboard', type=bool, default=True)
+    parser.add_argument('--use_tensorboard', type=bool, default=False)
     parser.add_argument('--image_size', type=int, default=64)
     parser.add_argument('--log_name', type=str, default='')
     parser.add_argument('--log_every', type=int, default=10)

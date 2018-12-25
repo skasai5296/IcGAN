@@ -8,11 +8,16 @@ import random
 import numpy as np
 import nltk
 import pickle
+from PIL import Image
 
 import torch
 import torchvision.utils as vutils
 from torchvision import transforms
+from torch.utils.data import DataLoader
 from model import *
+from dataset import CelebA, collate_fn
+
+from nltk.stem import WordNetLemmatizer
 
 nltk.download('wordnet')
 nltk.download('averaged_perceptron_tagger')
@@ -32,6 +37,10 @@ class Command():
                 warnings.warn('Command sequence is too short. Input a longer sequence')
             else:
                 break
+        self.lemmatizer = WordNetLemmatizer()
+
+    def lemmatize(word):
+        return self.lemmatizer.lemmatize(word)
 
     def reset_command(self, command):
         self.command = command
@@ -56,6 +65,36 @@ class Command():
         self.att = None
         self.des = None
         for w, p in zip(self.word, self.pos):
+            if p == 'JJR':
+                if self.word[cnt] == 'more' :
+                    if cnt != len(self.pos) - 1:
+                        self.att = self.word[cnt+1]
+                    else:
+                        self.att = self.word[cnt-1]
+                    self.des = 'more'
+                elif self.word[cnt] == 'less':
+                    if cnt != len(self.pos) - 1:
+                        self.att = self.word[cnt+1]
+                    else:
+                        self.des = 'less'
+                else:
+                    self.att = lemmatize(w)
+                    self.des = 'more'
+                break
+            elif p[:2] == 'NN':
+                if cnt != len(self.pos) - 1:
+                    if self.pos[cnt+1][:2] in ['JJ', 'RB', 'NN']:
+                        self.att = w
+                        self.des = word[cnt+1]
+                elif self.pos[cnt-1][:2] == 'JJ':
+                        self.att = word[cnt-1]
+                        self.des = w
+                break
+            elif p == 'JJ':
+                self.att = lemmatize(w)
+                self.des = 'more'
+                break
+            cnt += 1
             if cnt == len(self.pos) - 1:
                 if self.att is None:
                     words = random.sample(self.word, 2)
@@ -64,14 +103,6 @@ class Command():
                     print('randomly choosing attributes', flush=True)
                 print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
                 break
-            elif p[:2] == 'NN':
-                if self.pos[cnt+1][:2] in ['JJ', 'RB', 'NN']:
-                    self.att = w
-                    self.des = word[cnt+1]
-                elif self.pos[cnt-1][:2] == 'JJ':
-                    self.att = word[cnt-1]
-                    self.des = w
-            cnt += 1
         return self.att, self.des
 
 class Attributes():
@@ -143,6 +174,10 @@ parser.add_argument('--enc_y_path', type=str, default='../model/enc_y_epoch_30.m
 parser.add_argument('--enc_z_path', type=str, default='../model/enc_z_epoch_30.model')
 parser.add_argument('--gen_path', type=str, default='../model/gen_epoch_200.model')
 parser.add_argument('--save_path', type=str, default='../out/')
+parser.add_argument('--show_size', type=int, default=64)
+parser.add_argument('--root_dir', type=str, default='../../../local/CelebA/')
+parser.add_argument('--img_dir', type=str, default='img_align_celeba')
+parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
 args = parser.parse_args()
 
 
@@ -153,11 +188,8 @@ if not os.path.exists(picklepath):
     save_vectors(path, picklepath)
 data = load_vectors(picklepath)
 
-print(cosine_sim(data, 'black', 'gray'))
-
 attrs = Attributes()
 attributes, descriptions, descriptions_n, ftnum = attrs.get_attributes_descriptions('''attributes.txt''')
-print(attributes, descriptions, descriptions_n)
 
 a = []
 
@@ -172,24 +204,32 @@ gen = gen.to(device)
 
 enc_y.load_state_dict(torch.load(args.enc_y_path))
 enc_z.load_state_dict(torch.load(args.enc_z_path))
-gen.load_state_dict(torch.load(modelpath))
+gen.load_state_dict(torch.load(args.gen_path))
 
 enc_y.eval()
 enc_z.eval()
 gen.eval()
 
-im = Image.open(args.impath)
 transform = transforms.Compose([
     transforms.Resize((64, 64)),
     transforms.ToTensor(),
     transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 ])
-im_trans = transform(im)
-vutils.save_image(im_trans, args.save_path + 'before')
-im_trans = torch.unsqueeze(im_trans, 0)
 
-y = enc_y(im_trans)
-z = enc_z(im_trans)
+test_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform, train=False)
+testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+for i in testloader:
+    sample = i
+    break
+im = sample['image']
+
+grid = vutils.make_grid(im, normalize=True)
+vutils.save_image(grid, args.save_path + 'before.jpg')
+
+im = im.to(device)
+
+y = enc_y(im)
+z = enc_z(im)
 
 num = 1
 while True:
@@ -204,28 +244,30 @@ while True:
     maxcos = -1
     minidx = []
     for i, attr in enumerate(attributes):
-        cosine = cosine_sim(data, attr[i], att)
-        print(cosine, flush=True)
+        cosine = cosine_sim(data, attr, att)
         if cosine >= maxcos:
             minidx.append(i)
-            minattr = attr[i]
+            minattr = attr
             maxcos = cosine
     print('attribute {} to be modified'.format(minattr), flush=True)
 
     for i in minidx:
-        cp = cosine_sim(data, desc, descriptions[i])
-        cn = cosine_sim(data, desc, descriptions_n[i])
-        if cp > cn+0.2:
-            y[0, i] += 0.5
-            print('increase', flush=True)
-        elif cn > cp+0.2:
-            y[0, i] -= 0.5
-            print('decrease', flush=True)
-        else: pass
+        cp = cosine_sim(data, des, descriptions[i])
+        cn = cosine_sim(data, des, descriptions_n[i])
+        if cp > cn+0.1:
+            y[:, i] = 1
+            print('direction {}'.format(descriptions[i]), flush=True)
+        elif cn > cp+0.1:
+            y[:, i] = 0
+            print('direction {}'.format(descriptions_n[i]), flush=True)
+        else: 
+            print('no change', flush=True)
         cnt += 1
 
     result = gen(z, y)
-    vutils.save_image(result, args.save_path + 'after_{}'.format(num))
+    result = result.detach().cpu()
+    grid = vutils.make_grid(result, normalize=True)
+    vutils.save_image(grid, args.save_path + 'after_{}.jpg'.format(num))
     print('saved image, {}th modification'.format(num))
     num += 1
 
