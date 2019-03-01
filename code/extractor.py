@@ -2,6 +2,7 @@ import os
 import argparse
 import time
 import io
+import glob
 import warnings
 import random
 
@@ -26,6 +27,7 @@ nltk.download('averaged_perceptron_tagger')
 class Command():
     def __init__(self):
         self.flag = True
+        self.flag2 = True
         while self.flag:
             print('Input a command: ')
             self.reset_command(input())
@@ -66,30 +68,32 @@ class Command():
         self.des = None
         for w, p in zip(self.word, self.pos):
             if p == 'JJR':
-                if self.word[cnt] == 'more' :
+                if self.word[cnt] == 'more':
                     if cnt != len(self.pos) - 1:
                         self.att = self.word[cnt+1]
                     else:
                         self.att = self.word[cnt-1]
                     self.des = 'more'
+                    break
                 elif self.word[cnt] == 'less':
                     if cnt != len(self.pos) - 1:
                         self.att = self.word[cnt+1]
-                    else:
                         self.des = 'less'
+                        break
                 else:
                     self.att = lemmatize(w)
                     self.des = 'more'
-                break
+                    break
             elif p[:2] == 'NN':
                 if cnt != len(self.pos) - 1:
                     if self.pos[cnt+1][:2] in ['JJ', 'RB', 'NN']:
                         self.att = w
                         self.des = word[cnt+1]
+                        break
                 elif self.pos[cnt-1][:2] == 'JJ':
-                        self.att = word[cnt-1]
-                        self.des = w
-                break
+                    self.att = word[cnt-1]
+                    self.des = w
+                    break
             elif p == 'JJ':
                 self.att = lemmatize(w)
                 self.des = 'more'
@@ -101,8 +105,8 @@ class Command():
                     self.att = words[0]
                     self.des = words[1]
                     print('randomly choosing attributes', flush=True)
-                print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
                 break
+        print('using word "{}" as attribute, word "{}" as way of change'.format(self.att, self.des), flush=True)
         return self.att, self.des
 
 class Attributes():
@@ -172,14 +176,13 @@ parser.add_argument('--impath', type=str, default='../../../local/CelebA/img_ali
 parser.add_argument('--nz', type=int, default=100)
 parser.add_argument('--enc_y_path', type=str, default='../model/enc_y_epoch_30.model')
 parser.add_argument('--enc_z_path', type=str, default='../model/enc_z_epoch_30.model')
-parser.add_argument('--gen_path', type=str, default='../model/gen_epoch_200.model')
-parser.add_argument('--save_path', type=str, default='../out/')
+parser.add_argument('--gen_path', type=str, default='../model/gen_epoch_60.model')
+parser.add_argument('--save_path', type=str, default='../out/transfer/')
 parser.add_argument('--show_size', type=int, default=64)
 parser.add_argument('--root_dir', type=str, default='../../../local/CelebA/')
 parser.add_argument('--img_dir', type=str, default='img_align_celeba')
 parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
 args = parser.parse_args()
-
 
 '''load vectors from path'''
 path = '''../corpus/crawl-300d-2M-subword.vec'''
@@ -223,16 +226,26 @@ for i in testloader:
     break
 im = sample['image']
 
+
 grid = vutils.make_grid(im, normalize=True)
-vutils.save_image(grid, args.save_path + 'before.jpg')
+for i in range(100):
+    pth = glob.glob(os.path.join(args.save_path, 'im_{}'.format(i)) + '*.jpg')
+    if not pth:
+        imcnt = i
+        break
+vutils.save_image(grid, args.save_path + 'im{}_0_original.jpg'.format(imcnt))
 
 im = im.to(device)
 
 y = enc_y(im)
 z = enc_z(im)
+del enc_z
+del enc_y
+torch.cuda.empty_cache()
 
 num = 1
 while True:
+
     command = Command()
     if not command.flag:
         break
@@ -241,14 +254,14 @@ while True:
     a.append(pos)
     att, des = command.get_attributes_descriptions()
     cnt = 0
-    maxcos = -1
     minidx = []
+    cosine = np.full((ftnum, ), -1)
+    maxcos = np.max(cosine)
     for i, attr in enumerate(attributes):
-        cosine = cosine_sim(data, attr, att)
-        if cosine >= maxcos:
+        if cosine[i] > maxcos-0.1:
             minidx.append(i)
-            minattr = attr
-            maxcos = cosine
+            if cosine[i] == maxcos:
+                minattr = attr
     print('attribute {} to be modified'.format(minattr), flush=True)
 
     for i in minidx:
@@ -267,7 +280,7 @@ while True:
     result = gen(z, y)
     result = result.detach().cpu()
     grid = vutils.make_grid(result, normalize=True)
-    vutils.save_image(grid, args.save_path + 'after_{}.jpg'.format(num))
+    vutils.save_image(grid, args.save_path + 'im{}_{}_{}.jpg'.format(imcnt, num, command.command))
     print('saved image, {}th modification'.format(num))
     num += 1
 

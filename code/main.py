@@ -8,13 +8,30 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.bernoulli import Bernoulli
 from torch.utils.data import DataLoader
+import torch.autograd as autograd
 from torchvision import transforms
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
 from dataset import DeepFashion, CelebA, collate_fn, randomsample
-from model import Generator, Discriminator, init_weights
+from model import Generator, Discriminator, init_weights, Generator_Res, Discriminator_Res
 
+def calc_gradient_penalty(netD, LAMBDA, real_data, fake_data, y):
+    #print(real_data.size())
+    bs = real_data.size(0)
+    alpha = torch.rand(bs, 1)
+    alpha = alpha.unsqueeze(-1).unsqueeze(-1)
+    #print(alpha.size())
+    alpha = alpha.expand_as(real_data)
+    alpha = alpha.cuda() if torch.cuda.is_available else alpha
+    interpolates = alpha * real_data + ((1 - alpha) * fake_data)
+    if torch.cuda.is_available():
+        interpolates = interpolates.cuda()
+        interpolates = autograd.Variable(interpolates, requires_grad=True)
+    disc_interpolates = netD(interpolates, y)
+    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates, grad_outputs=torch.ones(disc_interpolates.size()).cuda() if torch.cuda.is_available() else torch.ones(disc_interpolates.size()), create_graph=True, retain_graph=True, only_inputs=True)[0]
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
+    return gradient_penalty
 
 def train(args):
 
@@ -25,7 +42,7 @@ def train(args):
 
     # transforms applied
     transform = transforms.Compose([
-                        transforms.Resize((64, 64)),
+                        transforms.Resize((args.image_size, args.image_size)),
                         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
                         transforms.RandomHorizontalFlip(),
                         transforms.ToTensor(),
@@ -35,7 +52,7 @@ def train(args):
     # dataset and dataloader for training
     train_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform)
     fsize = train_dataset.feature_size
-    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True, num_workers=2)
 
     '''
     dataloader returns dictionaries.
@@ -45,9 +62,13 @@ def train(args):
     attnames = list(train_dataset.df.columns)[1:]
 
     # model, optimizer, criterion
-    gen = Generator(in_c = args.nz + fsize)
+    if args.residual:
+        gen = Generator_Res(in_c = args.nz + fsize)
+        dis = Discriminator_Res(ny=fsize)
+    else:
+        gen = Generator(in_c = args.nz + fsize)
+        dis = Discriminator(ny=fsize)
     gen = gen.to(device)
-    dis = Discriminator(ny=fsize)
     dis = dis.to(device)
 
     # initialize weights for conv layers
@@ -77,8 +98,8 @@ def train(args):
     gen.train()
     dis.train()
 
-    real_tar = 0.8
-    fake_tar = 0.2
+    real_tar = 1.0
+    fake_tar = 0.0
 
     for ep in range(args.num_epoch):
 
@@ -99,7 +120,11 @@ def train(args):
             x_real = x.clone().detach()
             y_real = y.clone().detach()
             out = dis(x_real, y_real)
-            real_dis_loss = criterion(out, real_label)
+            print(out.size(), real_label.size())
+            if args.wgan == 'none':
+                real_dis_loss = criterion(out, real_label)
+            elif args.wgan == 'wgangp':
+                real_dis_loss = out.mean()
             real_dis_loss.backward()
             D_x = out.mean().detach()
 
@@ -109,7 +134,10 @@ def train(args):
             x_real = x.clone().detach()
             y_fake = dist.sample(y.size()).squeeze().to(device)
             out = dis(x_real, y_fake)
-            fake_dis_loss = 0.5 * criterion(out, fake_label)
+            if args.wgan == 'none':
+                fake_dis_loss = 0.5 * criterion(out, fake_label)
+            elif args.wgan == 'wgangp':
+                fake_dis_loss = 0.5 * out.mean()
             fake_dis_loss.backward()
             D_x2 = out.mean().detach()
 
@@ -119,9 +147,17 @@ def train(args):
             y_real = y.clone().detach()
             x_fake = gen(z, y_real)
             out = dis(x_fake, y_real)
-            fake_dis_loss2 = 0.5 * criterion(out, fake_label)
+            if args.wgan == 'none':
+                fake_dis_loss2 = 0.5 * criterion(out, fake_label)
+            elif args.wgan == 'wgangp':
+                fake_dis_loss2 = 0.5 * out.mean()
             fake_dis_loss2.backward()
             D_G_z1 = out.mean().detach()
+
+            # train using gradient penalty
+            if args.wgan == 'wgangp':
+                gp = calc_gradient_penalty(dis, 0.1, x_real, x_fake, y_real)
+                gp.backward()
 
             dis_optim.step()
             errD = (real_dis_loss + fake_dis_loss + fake_dis_loss2) / 2
@@ -175,24 +211,24 @@ def train(args):
             writer.add_text("epoch loss", "epoch [{}/{}] done | Disc loss: {:.6f} \t Gen loss: {:.6f}".format(ep+1, args.num_epoch, Dloss, Gloss), ep+1)
 
 
-        '''save models'''
+        '''save models and generated images on fixed labels'''
         if ep % args.save_model_every == (args.save_model_every - 1):
             torch.save(gen.state_dict(), "../model/gen_epoch_{}.model".format(ep+1))
             torch.save(dis.state_dict(), "../model/dis_epoch_{}.model".format(ep+1))
+
+            if not os.path.exists('../out/epoch-{}'.format(ep+1)):
+                os.mkdir('../out/epoch-{}'.format(ep+1))
 
             '''save and add images based on fixed noise and labels'''
             img = gen(fixed_noise, fixed_label).detach().cpu()
             grid = vutils.make_grid(img, normalize=True)
             if args.use_tensorboard:
                 writer.add_image('epoch {}'.format(ep+1), grid, ep+1)
-            vutils.save_image(grid, "../out/fixed_labels_ep{}.png".format(ep+1))
+            vutils.save_image(grid, "../out/epoch-{}/original.png".format(ep+1))
 
-            if not os.path.exists('../out/epoch-{}'.format(ep+1)):
-                os.mkdir('../out/epoch-{}'.format(ep+1))
-
-            '''save images based on fixed noise and random one-hot attribute labels'''
+            '''save images based on fixed noise and labels, make attribute 1'''
             for i in range(fsize):
-                att = torch.zeros(args.show_size, fsize).to(device)
+                att = fixed_label
                 att[:, i] = 1
                 img = gen(fixed_noise, att).detach().cpu()
                 grid = vutils.make_grid(img, normalize=True)
@@ -221,6 +257,7 @@ def main():
     img_dir : relative path of directory containing images
     ann_dir : relative path of file containing annotations of attributes.
     cuda_device : gpu device to use for training
+    wgan : 'none' for no gp, 'wgangp' for improved wasserstein gan
     '''
 
     parser = argparse.ArgumentParser()
@@ -239,7 +276,10 @@ def main():
     parser.add_argument('--img_dir', type=str, default='img_align_celeba')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
     parser.add_argument('--cuda_device', type=str, default='cuda')
+    parser.add_argument('--gpu_num', type=list, default=[0])
     parser.add_argument('--nz', type=int, default=100)
+    parser.add_argument('--residual', type=bool, default=False)
+    parser.add_argument('--wgan', type=str, default='none')
 
     args = parser.parse_args()
     train(args)

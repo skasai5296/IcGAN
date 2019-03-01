@@ -15,7 +15,8 @@ import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
 from dataset import DeepFashion, CelebA, collate_fn, randomsample
-from model import Generator, Discriminator, Encoder, init_weights
+from model import Generator, Discriminator, Encoder, init_weights, AttrEncoder
+from evaluator import eval, eval_im
 
 def train(args):
     if args.use_tensorboard:
@@ -34,8 +35,8 @@ def train(args):
     train_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform)
     test_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform, train=False)
     fsize = train_dataset.feature_size
-    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
-    testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True, num_workers=4)
+    testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True, num_workers=4)
 
     '''
     dataloader returns dictionaries.
@@ -47,11 +48,16 @@ def train(args):
     # model, optimizer, criterion
     gen = Generator(in_c = args.nz + fsize)
     gen = gen.to(device)
-    modelpath = '../model/gen_epoch_{}.model'.format(args.model_ep)
-    gen.load_state_dict(torch.load(modelpath))
+    MODELPATH = '../model/gen_epoch_{}.model'.format(args.model_ep)
+    gen.load_state_dict(torch.load(MODELPATH))
 
     enc_y = Encoder(fsize).to(device)
     enc_z = Encoder(args.nz, for_y=False).to(device)
+
+    attr = AttrEncoder().to(device)
+    ATTRPATH = '../model/atteval_epoch_{}.model'.format(args.attr_epoch)
+    attr.load_state_dict(torch.load(ATTRPATH))
+    attr.eval()
 
     # initialize weights for encoders
     enc_y.apply(init_weights)
@@ -68,6 +74,7 @@ def train(args):
     print("begin training, lr={}".format(args.learning_rate), flush=True)
     stepcnt = 0
     gen.eval()
+    
 
     for ep in range(args.num_epoch):
 
@@ -76,6 +83,10 @@ def train(args):
 
         YLoss = 0
         ZLoss = 0
+
+        ittime = time.time()
+        run_time = 0
+        run_ittime = 0
 
         for it, sample in enumerate(trainloader):
 
@@ -108,6 +119,10 @@ def train(args):
             YLoss += loss_y
             ZLoss += loss_z
 
+            ittime_a = time.time() - ittime
+            run_time += time.time() - elapsed
+            run_ittime += ittime_a
+
             '''log the losses and images, get time of loop'''
             if it % args.log_every == (args.log_every - 1):
                 if args.use_tensorboard:
@@ -115,7 +130,10 @@ def train(args):
                     writer.add_scalar('z loss', loss_z, stepcnt+1)
 
                 after = time.time()
-                print("{}th iter\ty loss: {:.5f}\tz loss: {:.5f}\t{:.4f}s per loop".format(it+1, loss_y, loss_z, (after-elapsed) / args.log_every), flush=True)
+                print("{}th iter\ty loss: {:.5f}\tz loss: {:.5f}\t{:.4f}s per step, {:.4f}s per iter".format(it+1, loss_y, loss_z, run_time / args.log_every, run_ittime / args.log_every), flush=True)
+                run_time = 0
+                run_ittime = 0
+            ittime = time.time()
 
             stepcnt += 1
 
@@ -123,33 +141,51 @@ def train(args):
         if args.use_tensorboard:
             writer.add_text("epoch loss", "epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), ep+1)
 
+        try:
+            torch.save(enc_y.state_dict(), "../model/enc_y_epoch_{}.model".format(ep+1))
+            torch.save(enc_z.state_dict(), "../model/enc_z_epoch_{}.model".format(ep+1))
+        except OSError:
+            print("failed to save model for epoch {}".format(ep+1))
 
         if ep % args.recon_every == (args.recon_every - 1):
             # reconstruction and attribute transfer of images
             enc_y.eval()
             enc_z.eval()
+            SAVEPATH = '../out/enc_epoch-{}'.format(ep+1)
+            if not os.path.exists(SAVEPATH):
+                os.mkdir(SAVEPATH)
 
             for sample in testloader:
                 im = sample['image']
                 grid = vutils.make_grid(im, normalize=True)
-                vutils.save_image(grid, '../out/ep_{}_original.png'.format(ep+1))
+                vutils.save_image(grid, os.path.join(SAVEPATH, '0original.png'))
                 im = im.to(device)
                 y = enc_y(im)
                 z = enc_z(im)
-                recon = gen(z, y).cpu()
+                im = gen(z, y)
+                y_h = attr(im)
+                recon = im.cpu()
                 grid = vutils.make_grid(recon, normalize=True)
-                vutils.save_image(grid, '../out/ep_{}_recon.png'.format(ep+1))
+                vutils.save_image(grid, os.path.join(SAVEPATH, '0recon.png'))
 
-                idx = random.randrange(fsize)
-                fname = attnames[idx]
-                y[:, idx] = 1
-                trans = gen(z, y).cpu()
-                grid2 = vutils.make_grid(trans, normalize=True)
-                vutils.save_image(grid2, '../out/ep_{}_{}.png'.format(ep+1, fname))
+                CNT = 0
+                ALLCNT = 0
+                for idx in range(fsize):
+                    fname = attnames[idx]
+                    y_p_h = y_h.clone()
+                    for i in range(args.show_size):
+                        y_p_h[i, idx] = 0 if y_p_h[i, idx] == 1 else 1
+                    out = gen(z, y_p_h)
+                    trans = out.cpu()
+                    grid2 = vutils.make_grid(trans, normalize=True)
+                    vutils.save_image(grid2, os.path.join(SAVEPATH, '{}.png'.format(fname)))
+                    cnt, allcnt = eval_im(attr, out, y_p_h)
+                    CNT += cnt
+                    ALLCNT += allcnt
                 break
+            print("epoch {} for encoder, acc: {:.03}%".format(ep+1, CNT / ALLCNT * 100), flush=True)
 
-            torch.save(enc_y.state_dict(), "../model/enc_y_epoch_{}.model".format(ep+1))
-            torch.save(enc_z.state_dict(), "../model/enc_z_epoch_{}.model".format(ep+1))
+
 
     print("end training")
     if args.use_tensorboard:
@@ -179,9 +215,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', type=bool, default=False)
     parser.add_argument('--log_name', type=str, default='')
-    parser.add_argument('--recon_every', type=int, default=2)
+    parser.add_argument('--recon_every', type=int, default=1)
     parser.add_argument('--log_every', type=int, default=50)
-    parser.add_argument('--num_epoch', type=int, default=30)
+    parser.add_argument('--num_epoch', type=int, default=50)
     parser.add_argument('--learning_rate', type=float, default=1e-2)
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
     parser.add_argument('--batch_size', type=int, default=128)
@@ -190,8 +226,9 @@ def main():
     parser.add_argument('--img_dir', type=str, default='img_align_celeba')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
     parser.add_argument('--cuda_device', type=str, default='cuda')
-    parser.add_argument('--model_ep', type=int, default=150)
+    parser.add_argument('--model_ep', type=int, default=200)
     parser.add_argument('--nz', type=int, default=100)
+    parser.add_argument('--attr_epoch', type=int, default=8)
 
 
     args = parser.parse_args()

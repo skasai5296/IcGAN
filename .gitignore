@@ -5,6 +5,9 @@
 model/
 out/
 corpus/
+cropped/
 code/runs/
 **/.DS_Store
 **/*.pkl
+**/*.log
+**/*.out

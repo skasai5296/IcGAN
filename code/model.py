@@ -4,6 +4,78 @@ import torch.nn.utils as utils
 
 from torchvision.models import resnet50, resnet152
 
+class Resblock(nn.Module):
+    '''
+    Residual Block.
+    conv-normalization-activation-conv-normalization-activation
+    '''
+    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
+        super(Resblock, self).__init__()
+        self.model = nn.Sequential(
+                 Conv(in_c, in_c, ksize=3, stride=1),
+                 Normalization(in_c, method=norm_method),
+                 Activation(option=act),
+                 Conv(in_c, in_c, ksize=3, stride=1),
+                 Normalization(in_c, method=norm_method),
+                 Activation(option=act)
+                 )
+    def forward(self, x):
+        return x + self.model(x)
+
+class Down(nn.Module):
+    '''
+    Downsampling Layer
+    conv-normalization-activation
+    (bs x C x H x W) -> (bs x 2C x H/2 x W/2)
+    '''
+    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
+        super(Down, self).__init__()
+        self.model = nn.Sequential(
+                 Conv(in_c, in_c*2, ksize=3, stride=1),
+                 Normalization(in_c*2, method=norm_method),
+                 Activation(option=act),
+                 )
+    def forward(self, x):
+        return self.model(x)
+
+class Up(nn.Module):
+    '''
+    Upsampling Layer
+    conv-normalization-activation
+    (bs x C x H x W) -> (bs x C//2 x 2H x 2W)
+    '''
+    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
+        super(Up, self).__init__()
+        self.model = nn.Sequential(
+                 nn.ConvTranspose2d(in_c, in_c//2, kernel_size=3, stride=1),
+                 Normalization(in_c//2, method=norm_method),
+                 Activation(option=act),
+                 )
+    def forward(self, x):
+        return self.model(x)
+
+
+
+class AttrEncoder(nn.Module):
+    '''
+    Attribute predictor class (encoder)
+    '''
+    def __init__(self, outdims=40):
+        super(AttrEncoder, self).__init__()
+        self.resnet = resnet50(pretrained=True)
+        self.reslayers = list(self.resnet.children())[:-2]
+        self.reslayers.append(nn.Conv2d(2048, 2048, 2))
+        self.model = nn.Sequential(*self.reslayers)
+        self.affine = nn.Linear(2048, outdims)
+        self.act = nn.Sigmoid()
+
+    def forward(self, x):
+        if x.dim() == 3:
+            x = x.unsqueeze(0)
+        resout = self.model(x)
+        resout = resout.view(resout.size(0), -1)
+        out = self.act(self.affine(resout))
+        return out
 
 class Encoder(nn.Module):
     '''
@@ -69,6 +141,7 @@ class Encoder(nn.Module):
         out2 = self.linear(out)
         return out2
 
+
 class Generator(nn.Module):
     '''
     Generator for cGAN
@@ -101,6 +174,39 @@ class Generator(nn.Module):
         bs = z.size(0)
         inp = torch.cat((z, y), 1).view(bs, -1, 1, 1)
         out = self.model(inp)
+        return out
+
+class Generator_Res(nn.Module):
+    '''
+    Generator for cGAN
+    inputs:
+        z (bs x nz)
+        y' (bs x ny)
+        in_c = nz+ny
+    outputs:
+        x' (bs x 3 x 224 x 224)
+    '''
+    def __init__(self, in_c):
+        super(Generator_Res, self).__init__()
+        self.model = nn.ModuleList([
+                           nn.ConvTranspose2d(in_c, 512, kernel_size=7),
+                           Resblock(512),
+                           Up(512),
+                           Resblock(256),
+                           Up(256),
+                           Resblock(128),
+                           Up(128),
+                           Resblock(64),
+                           Up(64),
+                           Resblock(32),
+                           Deconv(32, 3),
+                           Activation(option='Tanh')
+        ])
+    def forward(self, x, y):
+        bs = x.size(0)
+        out = torch.cat((x, y), 1).view(bs, -1, 1, 1)
+        for layer in self.model:
+            out = layer(out)
         return out
 
 class Discriminator(nn.Module):
@@ -144,55 +250,45 @@ class Discriminator(nn.Module):
         out2 = self.model(out_cat)
         return out2.view(-1)
 
-class Resblock(nn.Module):
+class Discriminator_Res(nn.Module):
     '''
-    Residual Block.
-    conv-normalization-activation-conv-normalization-activation
+    Residual Discriminator for cGAN
+    inputs:
+        x' (bs x 3 x 224 x 224)
+        y (bs x ny)
+    outputs:
+        out (bs)
     '''
-    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
-        super(Resblock, self).__init__()
-        self.model = nn.Sequential(
-                 Conv(in_c, in_c, ksize=3, stride=1),
-                 Normalization(in_c, method=norm_method),
-                 Activation(option=act),
-                 Conv(in_c, in_c, ksize=3, stride=1),
-                 Normalization(in_c, method=norm_method),
-                 Activation(option=act)
-                 )
-    def forward(self, x):
-        return x + self.model(x)
+    def __init__(self, ny):
+        super(Discriminator_Res, self).__init__()
+        self.model = nn.ModuleList([
+                           Conv(3+ny, 64),
+                           Resblock(64),
+                           Down(64),
+                           Resblock(128),
+                           Down(128),
+                           Resblock(256),
+                           Down(256),
+                           Resblock(512),
+                           Down(512),
+                           Resblock(1024),
+                           Conv(1024, 2048, ksize=7, padding=0),
+                           Activation(option='Tanh')
+        ])
+    def forward(self, x, y):
+        bs = x.size(0)
+        ny = y.size(1)
+        # x (bs, 3, 224, 224)
+        if y.dim() == 2:
+            y = y.unsqueeze(-1).unsqueeze(-1)
+        # y_broadcast (bs, ny, 224, 224)
+        y_broadcast = y.expand(bs, ny, 224, 224)
+        out = torch.cat((x, y_broadcast), 1)
+        for layer in self.model:
+            out = layer(out)
+        return out.view(-1)
 
-class Down(nn.Module):
-    '''
-    Downsampling Layer
-    conv-normalization-activation
-    (bs x C x H x W) -> (bs x 2C x H/2 x W/2)
-    '''
-    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
-        super(Down, self).__init__()
-        self.model = nn.Sequential(
-                 Conv(in_c, in_c*2, ksize=3, stride=1),
-                 Normalization(in_c*2, method=norm_method),
-                 Activation(option=act),
-                 )
-    def forward(self, x):
-        return self.model(x)
 
-class Up(nn.Module):
-    '''
-    Upsampling Layer
-    conv-normalization-activation
-    (bs x C x H x W) -> (bs x C//2 x 2H x 2W)
-    '''
-    def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
-        super(Up, self).__init__()
-        self.model = nn.Sequential(
-                 Deconv(in_c, in_c//2, ksize=3, stride=1),
-                 Normalization(in_c//2, method=norm_method),
-                 Activation(option=act),
-                 )
-    def forward(self, x):
-        return self.model(x)
 
 
 
