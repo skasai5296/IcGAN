@@ -1,0 +1,100 @@
+Make his hair red.
+2 3
+Enhance her beauty.
+2 0
+Take his hat off.
+2 3
+Turn her into a beauty.
+4 0
+Make her blonde.
+2 0
+Give him a paler face.
+4 3
+Replace her black hair with gray hair.
+6 5
+Make her happier.
+2 +
+Make his face sad.
+2 3
+Make him cooler than now.
+2 +
+Raise his cheekbones.
+2 0
+Redden her pale cheeks.
+3 0
+Grow his beard.
+2 0
+Excited face for him.
+1 0
+Randomly change his facial expressions.
+4 1
+Make her younger than now.
+2 +
+Make him into an older man.
+4 +
+More attractive face for him
+1 +
+Make him more manly.
+3 +
+Put on her glasses.
+3 1
+Take off his glasses.
+3 1
+Bigger lips for her.
+1 0
+Blurrier pictures for all of them.
+1 0
+Make them fatter.
+2 +
+Turn her into a man.
+4 +
+Turn him into a woman.
+4 +
+Put on a necktie.
+3 1
+Wear lipsticks on.
+1 2
+Put earrings on.
+1 2
+Lighter makeup for her.
+1 0
+Narrow his eyes.
+2 0
+Pale skin for him.
+1 0
+Less hair for them.
+1 -
+Give her rosier cheeks.
+3 2
+Some sideburns for him.
+1 +
+Frowning men and women.
+0 +
+Bushy bangs for them.
+1 0
+Give her attractive lips.
+3 2
+Take off my mustache.
+3 1
+Rounder face for me.
+1 0
+Give me a pointier nose.
+4 3
+Blunter nose for her.
+1 0
+Make the bags under her eyes wider.
+2 +
+Chubbier faces for the picture.
+1 0
+Straighten his eyebrows.
+2 0
+Brown and straighter hair.
+3 2
+Make him look like superman.
+2 4
+Make her hair wavy.
+2 3
+Make his chin pointier.
+2 3
+Make her bald and shining.
+2 +
