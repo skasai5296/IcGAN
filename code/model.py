@@ -31,7 +31,7 @@ class Down(nn.Module):
     def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
         super(Down, self).__init__()
         self.model = nn.Sequential(
-                 Conv(in_c, in_c*2, ksize=3, stride=1),
+                 Conv(in_c, in_c*2),
                  Normalization(in_c*2, method=norm_method),
                  Activation(option=act),
                  )
@@ -47,7 +47,7 @@ class Up(nn.Module):
     def __init__(self, in_c, norm_method='Instancenorm', act='LeakyReLU'):
         super(Up, self).__init__()
         self.model = nn.Sequential(
-                 nn.ConvTranspose2d(in_c, in_c//2, kernel_size=3, stride=1),
+                 Deconv(in_c, in_c//2),
                  Normalization(in_c//2, method=norm_method),
                  Activation(option=act),
                  )
@@ -272,8 +272,8 @@ class Discriminator_Res(nn.Module):
                            Resblock(512),
                            Down(512),
                            Resblock(1024),
-                           Conv(1024, 2048, ksize=7, padding=0),
-                           Activation(option='Tanh')
+                           Conv(1024, 1, ksize=7, padding=0),
+                           Activation(option='Sigmoid')
         ])
     def forward(self, x, y):
         bs = x.size(0)
