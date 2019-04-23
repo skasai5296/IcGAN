@@ -110,8 +110,8 @@ def train(args):
     gen.train()
     dis.train()
 
-    real_tar = 1.0
-    fake_tar = 0.0
+    real_tar = 0.9
+    fake_tar = 0.1
 
     for ep in range(args.num_epoch):
 
