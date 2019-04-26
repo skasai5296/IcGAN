@@ -20,7 +20,8 @@ from evaluator import eval, eval_im
 
 def train(args):
     if args.use_tensorboard:
-        writer = SummaryWriter(comment=args.log_name)
+        log_name = "enc_lr{}".format(args.learning_rate)
+        writer = SummaryWriter(log_dir=os.path.join('runs', log_name))
 
     device = torch.device(args.cuda_device if torch.cuda.is_available() else 'cpu')
 
@@ -158,7 +159,7 @@ def train(args):
             for sample in testloader:
                 im = sample['image']
                 grid = vutils.make_grid(im, normalize=True)
-                vutils.save_image(grid, os.path.join(SAVEPATH, '0original.png'))
+                vutils.save_image(grid, os.path.join(SAVEPATH, 'original.png'))
                 im = im.to(device)
                 y = enc_y(im)
                 z = enc_z(im)
@@ -166,7 +167,7 @@ def train(args):
                 y_h = attr(im)
                 recon = im.cpu()
                 grid = vutils.make_grid(recon, normalize=True)
-                vutils.save_image(grid, os.path.join(SAVEPATH, '0recon.png'))
+                vutils.save_image(grid, os.path.join(SAVEPATH, 'recon.png'))
 
                 CNT = 0
                 ALLCNT = 0
@@ -213,8 +214,7 @@ def main():
     '''
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--use_tensorboard', type=bool, default=False)
-    parser.add_argument('--log_name', type=str, default='')
+    parser.add_argument('--use_tensorboard', action='store_true')
     parser.add_argument('--recon_every', type=int, default=1)
     parser.add_argument('--log_every', type=int, default=50)
     parser.add_argument('--num_epoch', type=int, default=50)
@@ -226,7 +226,7 @@ def main():
     parser.add_argument('--img_dir', type=str, default='img_align_celeba')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
     parser.add_argument('--cuda_device', type=str, default='cuda')
-    parser.add_argument('--model_ep', type=int, default=200)
+    parser.add_argument('--model_ep', type=int, default=50)
     parser.add_argument('--nz', type=int, default=100)
     parser.add_argument('--attr_epoch', type=int, default=8)
 

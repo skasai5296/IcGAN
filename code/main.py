@@ -35,10 +35,14 @@ def calc_gradient_penalty(netD, LAMBDA, real_data, fake_data, y):
 
 def train(args):
 
-    if args.use_tensorboard:
-        writer = SummaryWriter(comment=args.log_name)
+    print(args)
 
-    device = torch.device(args.cuda_device if torch.cuda.is_available() else 'cpu')
+    if args.use_tensorboard:
+        log_name = "im{}_lr{}_bs{}_nz{}_res{}_wasser{}".format(args.image_size, args.learning_rate, args.batch_size, args.nz, args.residual, args.wgan)
+        print("logging to runs/{}".format(log_name))
+        writer = SummaryWriter(log_dir=os.path.join('runs', log_name))
+
+    device = torch.device('cuda' if torch.cuda.is_available() and args.enable_cuda else 'cpu')
 
     # transforms applied
     transform = transforms.Compose([
@@ -52,7 +56,7 @@ def train(args):
     # dataset and dataloader for training
     train_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform)
     fsize = train_dataset.feature_size
-    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True, num_workers=2)
+    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True, num_workers=8)
 
     '''
     dataloader returns dictionaries.
@@ -68,6 +72,14 @@ def train(args):
     else:
         gen = Generator(in_c = args.nz + fsize)
         dis = Discriminator(ny=fsize)
+    gen_params = 0
+    dis_params = 0
+    for params in list(gen.parameters())[::2]:
+        gen_params += params.numel()
+    for params in list(dis.parameters())[::2]:
+        dis_params += params.numel()
+    print("# of parameters in generator : {}".format(gen_params))
+    print("# of parameters in discriminator : {}".format(dis_params))
     gen = gen.to(device)
     dis = dis.to(device)
 
@@ -98,8 +110,8 @@ def train(args):
     gen.train()
     dis.train()
 
-    real_tar = 1.0
-    fake_tar = 0.0
+    real_tar = 0.9
+    fake_tar = 0.1
 
     for ep in range(args.num_epoch):
 
@@ -120,10 +132,10 @@ def train(args):
             x_real = x.clone().detach()
             y_real = y.clone().detach()
             out = dis(x_real, y_real)
-            print(out.size(), real_label.size())
-            if args.wgan == 'none':
+            # print(out.size(), real_label.size())
+            if not args.wgan:
                 real_dis_loss = criterion(out, real_label)
-            elif args.wgan == 'wgangp':
+            else:
                 real_dis_loss = out.mean()
             real_dis_loss.backward()
             D_x = out.mean().detach()
@@ -134,9 +146,9 @@ def train(args):
             x_real = x.clone().detach()
             y_fake = dist.sample(y.size()).squeeze().to(device)
             out = dis(x_real, y_fake)
-            if args.wgan == 'none':
+            if not args.wgan:
                 fake_dis_loss = 0.5 * criterion(out, fake_label)
-            elif args.wgan == 'wgangp':
+            else:
                 fake_dis_loss = 0.5 * out.mean()
             fake_dis_loss.backward()
             D_x2 = out.mean().detach()
@@ -147,15 +159,15 @@ def train(args):
             y_real = y.clone().detach()
             x_fake = gen(z, y_real)
             out = dis(x_fake, y_real)
-            if args.wgan == 'none':
+            if not args.wgan:
                 fake_dis_loss2 = 0.5 * criterion(out, fake_label)
-            elif args.wgan == 'wgangp':
+            else:
                 fake_dis_loss2 = 0.5 * out.mean()
             fake_dis_loss2.backward()
             D_G_z1 = out.mean().detach()
 
             # train using gradient penalty
-            if args.wgan == 'wgangp':
+            if args.wgan:
                 gp = calc_gradient_penalty(dis, 0.1, x_real, x_fake, y_real)
                 gp.backward()
 
@@ -194,14 +206,15 @@ def train(args):
                     writer.add_scalar("G_loss", gloss, stepcnt)
 
                 after = time.time()
-                print("{}th iter\tD(x, y): {:.4f}\tD(x, y_fake): {:.4f}\tD(G(z, y)): {:.4f}\tD(G(z, y)): {:.4f}\t{:.4f}s per loop".format(it+1, D_x, D_x2, D_G_z1, D_G_z2, (after-elapsed) / args.log_every), flush=True)
+                print("{}th iter\tD(x, y): {:.4f}\tD(x, y_fake): {:.4f}\tD(G(z, y))_1: {:.4f}\tD(G(z, y))_2: {:.4f}\t{:.4f}s per loop".format(it+1, D_x, D_x2, D_G_z1, D_G_z2, (after-elapsed) / args.log_every), flush=True)
 
             if it % args.image_every == (args.image_every - 1):
                 im = gen(fixed_noise, fixed_label)
                 grid = vutils.make_grid(im, normalize=True)
 
                 if args.use_tensorboard:
-                    writer.add_image('epoch {}'.format(ep+1), grid, stepcnt+1)
+                    writer.add_image('iter {}'.format(it+1), grid, stepcnt+1)
+                    print("logged image, iter {}".format(it+1))
 
             stepcnt += 1
 
@@ -213,18 +226,19 @@ def train(args):
 
         '''save models and generated images on fixed labels'''
         if ep % args.save_model_every == (args.save_model_every - 1):
-            torch.save(gen.state_dict(), "../model/gen_epoch_{}.model".format(ep+1))
-            torch.save(dis.state_dict(), "../model/dis_epoch_{}.model".format(ep+1))
+            torch.save(gen.state_dict(), "../model/gen_epoch_{}_{}.model".format(ep+1, args.residual))
+            torch.save(dis.state_dict(), "../model/dis_epoch_{}_{}.model".format(ep+1, args.residual))
 
-            if not os.path.exists('../out/epoch-{}'.format(ep+1)):
-                os.mkdir('../out/epoch-{}'.format(ep+1))
+            if not os.path.exists('../out/cgan_res_{}_epoch-{}'.format(args.residual, ep+1)):
+                os.mkdir('../out/cgan_res_{}_epoch-{}'.format(args.residual, ep+1))
 
             '''save and add images based on fixed noise and labels'''
             img = gen(fixed_noise, fixed_label).detach().cpu()
             grid = vutils.make_grid(img, normalize=True)
             if args.use_tensorboard:
                 writer.add_image('epoch {}'.format(ep+1), grid, ep+1)
-            vutils.save_image(grid, "../out/epoch-{}/original.png".format(ep+1))
+            path = "../out/cgan_res_{}_epoch-{}".format(args.residual, ep+1)
+            vutils.save_image(grid, os.path.join(path, "original.png"))
 
             '''save images based on fixed noise and labels, make attribute 1'''
             for i in range(fsize):
@@ -232,7 +246,8 @@ def train(args):
                 att[:, i] = 1
                 img = gen(fixed_noise, att).detach().cpu()
                 grid = vutils.make_grid(img, normalize=True)
-                vutils.save_image(grid, "../out/epoch-{}/{}.png".format(ep+1, attnames[i]))
+                vutils.save_image(grid, os.path.join(path, "{}.png".format(attnames[i])))
+            print("saved original and transformed images in {}".format(path), flush=True)
 
     print("end training")
     if args.use_tensorboard:
@@ -261,25 +276,24 @@ def main():
     '''
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--use_tensorboard', type=bool, default=False)
-    parser.add_argument('--image_size', type=int, default=64)
-    parser.add_argument('--log_name', type=str, default='')
+    parser.add_argument('--use_tensorboard', action='store_true')
+    parser.add_argument('--image_size', type=int, default=224)
     parser.add_argument('--log_every', type=int, default=10)
     parser.add_argument('--image_every', type=int, default=500)
     parser.add_argument('--save_model_every', type=int, default=5)
     parser.add_argument('--num_epoch', type=int, default=200)
     parser.add_argument('--learning_rate', type=float, default=5e-6)
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--show_size', type=int, default=64)
-    parser.add_argument('--root_dir', type=str, default='../../../local/CelebA/')
+    parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
     parser.add_argument('--img_dir', type=str, default='img_align_celeba')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
-    parser.add_argument('--cuda_device', type=str, default='cuda')
+    parser.add_argument('--enable_cuda', action='store_true')
     parser.add_argument('--gpu_num', type=list, default=[0])
     parser.add_argument('--nz', type=int, default=100)
-    parser.add_argument('--residual', type=bool, default=False)
-    parser.add_argument('--wgan', type=str, default='none')
+    parser.add_argument('--residual', action='store_true')
+    parser.add_argument('--wgan', action='store_true')
 
     args = parser.parse_args()
     train(args)

@@ -1,5 +1,6 @@
 import os
 import random
+import json
 
 from PIL import Image
 import numpy as np
@@ -7,6 +8,10 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+
+from mat4py import loadmat
+
+
 
 class DeepFashion(Dataset):
     '''
@@ -105,6 +110,50 @@ class CelebA(Dataset):
 
         return sample
 
+class SUN_Attributes(Dataset):
+    '''
+    SUN Attributes dataset class
+    root_dir : root directory
+    img_dir : directory of image files
+    ann_dir : directory of annotation
+    transform : how to transform images, should be from torchvision.transforms
+    train : True for training
+    '''
+    def __init__(self, root_dir, image_dir, ann_dir, transform=None, train=True):
+        img_dir = os.path.join(root_dir, image_dir)
+        att_dir = os.path.join(root_dir, ann_dir, 'attributeLabels_continuous.mat')
+        imgn_dir = os.path.join(root_dir, ann_dir, 'images.mat')
+        attn_dir = os.path.join(root_dir, ann_dir, 'attributes.mat')
+        self.attrs = loadmat(att_dir)['labels_cv']
+        self.attrnames = loadmat(attn_dir)['attributes']
+        self.attrnames = [i[0] for i in self.attrnames]
+        self.imgs = loadmat(imgn_dir)['images']
+        self.imgs = [i[0] for i in self.imgs]
+        self.len = len(self.imgs)
+        self.idx = np.arange(self.len)
+        np.random.shuffle(self.idx)
+        if train:
+            self.dataidx = self.idx[:self.len*4//5]
+        else:
+            self.dataidx = self.idx[self.len*4//5:]
+
+        print('completed loading dataset (Training = {}), length is {}'.format(train, self.len), flush=True)
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+        impath = self.imgs[idx]
+        img = Image.open(impath)
+        ann = self.attrs[idx]
+
+        if self.transform:
+            img = self.transform(img)
+
+        sample = {'image': img, 'attributes': ann}
+
+        return sample
+
 
 def collate_fn(data):
     """
@@ -124,3 +173,10 @@ def randomsample(dataset, batchsize):
     data = [dataset[int(i)] for i in idx]
     out = torch.Tensor([sample['attributes'] for sample in data])
     return out
+
+if __name__ == '__main__':
+    path = '../../dsets/SUN_attr'
+    d = SUN_Attributes(path, 'images', 'SUNAttributeDB')
+
+
+
