@@ -14,31 +14,15 @@ import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 
 from dataset import DeepFashion, CelebA, SUN_Attributes, collate_fn, randomsample
-from model import Generator, Discriminator, init_weights, Generator_Res, Discriminator_Res
+from model import Generator, Discriminator, Discriminator_Aux, init_weights, Generator_Res, Discriminator_Res
 
-def calc_gradient_penalty(netD, LAMBDA, real_data, fake_data, y):
-    #print(real_data.size())
-    bs = real_data.size(0)
-    alpha = torch.rand(bs, 1)
-    alpha = alpha.unsqueeze(-1).unsqueeze(-1)
-    #print(alpha.size())
-    alpha = alpha.expand_as(real_data)
-    alpha = alpha.cuda() if torch.cuda.is_available else alpha
-    interpolates = alpha * real_data + ((1 - alpha) * fake_data)
-    if torch.cuda.is_available():
-        interpolates = interpolates.cuda()
-        interpolates = autograd.Variable(interpolates, requires_grad=True)
-    disc_interpolates = netD(interpolates, y)
-    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates, grad_outputs=torch.ones(disc_interpolates.size()).cuda() if torch.cuda.is_available() else torch.ones(disc_interpolates.size()), create_graph=True, retain_graph=True, only_inputs=True)[0]
-    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
-    return gradient_penalty
 
 def train(args):
 
     print(args)
 
     if args.use_tensorboard:
-        log_name = "{}_im{}_lr{}_bs{}_nz{}_res{}_wasser{}".format(args.dataset, args.image_size, args.learning_rate, args.batch_size, args.nz, args.residual, args.wgan)
+        log_name = "{}_im{}_lr{}_bs{}_nz{}_aux".format(args.dataset, args.image_size, args.learning_rate, args.batch_size, args.nz)
         print("logging to runs/{}".format(log_name))
         writer = SummaryWriter(log_dir=os.path.join('runs', log_name))
 
@@ -78,12 +62,8 @@ def train(args):
 
 
     # model, optimizer, criterion
-    if args.residual:
-        gen = Generator_Res(in_c = args.nz + fsize)
-        dis = Discriminator_Res(ny=fsize)
-    else:
-        gen = Generator(in_c = args.nz + fsize)
-        dis = Discriminator(ny=fsize)
+    gen = Generator(in_c = args.nz + fsize)
+    dis = Discriminator_Aux(ny=fsize)
     gen_params = 0
     dis_params = 0
     for params in list(gen.parameters())[::2]:
@@ -135,6 +115,7 @@ def train(args):
 
         Dloss = 0
         Gloss = 0
+        Closs = 0
 
         for it, sample in enumerate(trainloader):
 
@@ -149,35 +130,31 @@ def train(args):
             real_label = torch.full_like(label, real_tar)
             x_real = x.clone().detach()
             y_real = y.clone().detach()
-            out = dis(x_real, y_real)
+            out, y = dis(x_real)
             # print(out.size(), real_label.size())
-            if not args.wgan:
-                real_dis_loss = criterion(out, real_label)
-            else:
-                real_dis_loss = out.mean()
-            real_dis_loss.backward()
-            D_x = out.mean().detach()
+            real_dis_loss = 0.5 * criterion(out, real_label)
+            real_cls_loss = 0.5 * criterion(y, y_real)
+            real_dis_loss.backward(retain_graph=True)
+            real_cls_loss.backward()
+            D_x = out.mean().cpu().item()
+            cls1 = real_cls_loss.cpu().item()
 
             # train on fake images and real attributes, target are zeros (fake)
             fake_label = torch.full_like(label, fake_tar)
             z = torch.randn_like(noise)
             y_real = y.clone().detach()
             x_fake = gen(z, y_real)
-            out = dis(x_fake, y_real)
-            if not args.wgan:
-                fake_dis_loss2 = criterion(out, fake_label)
-            else:
-                fake_dis_loss2 = out.mean()
-            fake_dis_loss.backward()
-            D_G_z1 = out.mean().detach()
-
-            # train using gradient penalty
-            if args.wgan:
-                gp = calc_gradient_penalty(dis, 0.1, x_real, x_fake, y_real)
-                gp.backward()
+            out, y = dis(x_fake)
+            fake_dis_loss = 0.5 * criterion(out, fake_label)
+            fake_cls_loss = 0.5 * criterion(y, y_real)
+            fake_dis_loss.backward(retain_graph=True)
+            fake_cls_loss.backward()
+            D_G_z1 = out.mean().cpu().item()
+            cls2 = real_cls_loss.cpu().item()
 
             dis_optim.step()
-            errD = (real_dis_loss + fake_dis_loss) / 2
+            errD = real_dis_loss + fake_dis_loss
+            errD_C = cls1 + cls2
 
             '''training of Generator'''
             # train on fake images and real attributes, target are ones (real)
@@ -185,19 +162,24 @@ def train(args):
             y_real = randomsample(train_dataset, args.batch_size).to(device)
             z = torch.randn_like(noise)
             x_prime = gen(z, y_real)
-            out = dis(x_prime, y_real)
+            out, y = dis(x_prime)
             real_label = torch.full_like(label, real_tar)
             gen_loss = criterion(out, real_label)
-            gen_loss.backward()
-            D_G_z2 = out.mean().detach()
+            gen_cls_loss = criterion(y, y_real)
+            gen_loss.backward(retain_graph=True)
+            gen_cls_loss.backward()
+            D_G_z2 = out.mean().cpu().item()
 
             gen_optim.step()
-            errG = gen_loss
+            errG = gen_loss.cpu().item()
+            errG_C = gen_cls_loss.cpu().item()
 
-            dloss = errD.item()
-            gloss = errG.item()
+            dloss = errD
+            gloss = errG
+            closs = errD_C + errG_C
             Dloss += dloss
             Gloss += gloss
+            Closs += closs
 
             '''log the losses and images, get time of loop'''
             if it % args.log_every == (args.log_every - 1):
@@ -208,9 +190,10 @@ def train(args):
                     writer.add_scalar("D_G_z2", D_G_z2, stepcnt)
                     writer.add_scalar("D_loss", dloss, stepcnt)
                     writer.add_scalar("G_loss", gloss, stepcnt)
+                    writer.add_scalar("C_loss", closs, stepcnt)
 
                 after = time.time()
-                print("{}th iter\tD(x, y): {:.4f}\tD(G(z, y))_1: {:.4f}\tD(G(z, y))_2: {:.4f}\t{:.4f}s per loop".format(it+1, D_x, D_G_z1, D_G_z2, (after-elapsed) / args.log_every), flush=True)
+                print("{}th iter\tD(x, y): {:.4f}\tD(G(z, y))_1: {:.4f}\tD(G(z, y))_2: {:.4f}\tcls_loss: {:.4f}\t{:.4f}s per loop".format(it+1, D_x, D_G_z1, D_G_z2, closs, (after-elapsed) / args.log_every), flush=True)
 
             if it % args.image_every == (args.image_every - 1):
                 im = gen(fixed_noise, fixed_label)
@@ -228,25 +211,25 @@ def train(args):
             dis_scheduler.step(d_loss)
 
         '''log losses per epoch'''
-        print("epoch [{}/{}] done | Disc loss: {:.6f} \t Gen loss: {:.6f}".format(ep+1, args.num_epoch, Dloss, Gloss), flush=True)
+        print("epoch [{}/{}] done | Disc loss: {:.6f}\tGen loss: {:.6f}\tClassification loss: {:.6f}".format(ep+1, args.num_epoch, Dloss, Gloss, Closs), flush=True)
         if args.use_tensorboard:
-            writer.add_text("epoch loss", "epoch [{}/{}] done | Disc loss: {:.6f} \t Gen loss: {:.6f}".format(ep+1, args.num_epoch, Dloss, Gloss), ep+1)
+            writer.add_text("epoch loss", "epoch [{}/{}] done | Disc loss: {:.6f}\tGen loss: {:.6f}\tClassification loss: {:.6f}".format(ep+1, args.num_epoch, Dloss, Gloss, Closs), ep+1)
 
 
         '''save models and generated images on fixed labels'''
         if ep % args.save_model_every == (args.save_model_every - 1):
-            savedir = os.path.join(args.model_path, "{}/res_{}".format(args.dataset, args.residual))
+            savedir = os.path.join(args.model_path, "{}/aux/".format(args.dataset))
             if not os.path.exists(savedir):
                 os.makedirs(savedir, exist_ok=True)
-            gen_pth = "gen_epoch_{}".format(ep+1)
-            dis_pth = "dis_epoch_{}".format(ep+1)
+            gen_pth = "gen_epoch_{}.model".format(ep+1)
+            dis_pth = "dis_epoch_{}.model".format(ep+1)
 
             torch.save(gen.state_dict(), os.path.join(savedir, gen_pth))
             torch.save(dis.state_dict(), os.path.join(savedir, dis_pth))
             print("saved model to {}".format(savedir))
 
             '''save and add images based on fixed noise and labels'''
-            imdir = os.path.join(args.output_path, "{}/res_{}/cgan_epoch_{}".format(args.dataset, args.residual, ep+1))
+            imdir = os.path.join(args.output_path, "{}/aux/cgan_epoch_{}".format(args.dataset, ep+1))
             if not os.path.exists(imdir):
                 os.makedirs(imdir, exist_ok=True)
             img = gen(fixed_noise, fixed_label).detach().cpu()
@@ -287,7 +270,6 @@ def main():
     img_dir : relative path of directory containing images
     ann_dir : relative path of file containing annotations of attributes.
     cuda_device : gpu device to use for training
-    wgan : 'none' for no gp, 'wgangp' for improved wasserstein gan
     '''
 
     parser = argparse.ArgumentParser()
@@ -307,14 +289,15 @@ def main():
     parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'])
     parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
     parser.add_argument('--enable_cuda', action='store_true')
-    parser.add_argument('--model_path', action='../model')
-    parser.add_argument('--output_path', action='../out')
+    parser.add_argument('--model_path', type=str, default='../model')
+    parser.add_argument('--output_path', type=str, default='../out')
     parser.add_argument('--nz', type=int, default=100)
-    parser.add_argument('--residual', action='store_true')
-    parser.add_argument('--wgan', action='store_true')
 
     args = parser.parse_args()
     train(args)
 
 if __name__ == '__main__':
     main()
+
+
+

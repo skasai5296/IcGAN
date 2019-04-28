@@ -27,9 +27,11 @@ def train(args):
 
     # transforms applied
     transform = transforms.Compose([
-        transforms.Resize((64, 64)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+                        transforms.Resize((args.image_size, args.image_size)),
+                        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     ])
 
     # dataset and dataloader for training
@@ -215,6 +217,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', action='store_true')
+    parser.add_argument('--image_size', type=int, default=64)
     parser.add_argument('--recon_every', type=int, default=1)
     parser.add_argument('--log_every', type=int, default=50)
     parser.add_argument('--num_epoch', type=int, default=50)

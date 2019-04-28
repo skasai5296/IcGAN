@@ -250,6 +250,44 @@ class Discriminator(nn.Module):
         out2 = self.model(out_cat)
         return out2.view(-1)
 
+class Discriminator_Aux(nn.Module):
+    '''
+    Discriminator for cGAN
+    inputs:
+        x or x' (bs x 3 x 64 x 64)
+    outputs:
+        out (bs x 1)
+        y (bs x ny)
+    '''
+    def __init__(self, ny):
+        super(Discriminator_Aux, self).__init__()
+        self.ny = ny
+        self.before = nn.Sequential(
+                          Conv(3, 64),
+                          Activation(option='LeakyReLU')
+                          )
+        self.model = nn.Sequential(
+                          Conv(64, 128),
+                          Normalization(128),
+                          Activation(option='LeakyReLU'),
+                          Conv(128, 256),
+                          Normalization(256),
+                          Activation(option='LeakyReLU'),
+                          Conv(256, 512),
+                          Normalization(512),
+                          Activation(option='LeakyReLU'),
+                          Conv(512, 1+ny, stride=1, padding=0),
+                          Activation(option='Sigmoid')
+                          )
+    def forward(self, x):
+        bs = x.size(0)
+        # out1 (bs, 64, 32, 32)
+        out1 = self.before(x)
+        out2 = self.model(out1)
+        out2 = out2.view(bs, 1+self.ny)
+        out, y = torch.split(out2, [1, self.ny], dim=1)
+        return out.view(-1), y
+
 class Discriminator_Res(nn.Module):
     '''
     Residual Discriminator for cGAN
