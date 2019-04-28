@@ -128,14 +128,16 @@ class SUN_Attributes(Dataset):
         self.attrnames = loadmat(attn_dir)['attributes']
         self.attrnames = [i[0] for i in self.attrnames]
         self.imgs = loadmat(imgn_dir)['images']
-        self.imgs = [i[0] for i in self.imgs]
+        self.imgs = [os.path.join(img_dir, i[0]) for i in self.imgs]
         self.len = len(self.imgs)
+        self.feature_size = len(self.attrnames)
         self.idx = np.arange(self.len)
         np.random.shuffle(self.idx)
         if train:
             self.dataidx = self.idx[:self.len*4//5]
         else:
             self.dataidx = self.idx[self.len*4//5:]
+        self.transform = transform
 
         print('completed loading dataset (Training = {}), length is {}'.format(train, self.len), flush=True)
 
@@ -145,6 +147,7 @@ class SUN_Attributes(Dataset):
     def __getitem__(self, idx):
         impath = self.imgs[idx]
         img = Image.open(impath)
+        img = img.convert('RGB')
         ann = self.attrs[idx]
 
         if self.transform:
