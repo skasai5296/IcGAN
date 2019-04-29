@@ -134,8 +134,8 @@ def train(args):
             # print(out.size(), real_label.size())
             real_dis_loss = 0.5 * criterion(out, real_label)
             real_cls_loss = 0.5 * criterion(y, y_real)
-            real_dis_loss.backward(retain_graph=True)
-            real_cls_loss.backward()
+            err = real_dis_loss + args.lambda_c * real_cls_loss
+            err.backward()
             D_x = out.mean().cpu().item()
             cls1 = real_cls_loss.cpu().item()
 
@@ -147,8 +147,8 @@ def train(args):
             out, y = dis(x_fake)
             fake_dis_loss = 0.5 * criterion(out, fake_label)
             fake_cls_loss = 0.5 * criterion(y, y_real)
-            fake_dis_loss.backward(retain_graph=True)
-            fake_cls_loss.backward()
+            err = fake_dis_loss + args.lambda_c * fake_cls_loss
+            err.backward()
             D_G_z1 = out.mean().cpu().item()
             cls2 = real_cls_loss.cpu().item()
 
@@ -166,8 +166,8 @@ def train(args):
             real_label = torch.full_like(label, real_tar)
             gen_loss = criterion(out, real_label)
             gen_cls_loss = criterion(y, y_real)
-            gen_loss.backward(retain_graph=True)
-            gen_cls_loss.backward()
+            err = gen_loss + args.lambda_c * gen_cls_loss
+            err.backward()
             D_G_z2 = out.mean().cpu().item()
 
             gen_optim.step()
@@ -286,6 +286,7 @@ def main():
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--show_size', type=int, default=64)
+    parser.add_argument('--lambda_c', type=float, default=0.1)
     parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'])
     parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
     parser.add_argument('--enable_cuda', action='store_true')
