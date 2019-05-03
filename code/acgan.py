@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -279,7 +280,7 @@ def main():
     parser.add_argument('--image_every', type=int, default=500)
     parser.add_argument('--save_model_every', type=int, default=5)
     parser.add_argument('--num_epoch', type=int, default=200)
-    parser.add_argument('--opt_method', choices=['SGD', 'Adam'])
+    parser.add_argument('--opt_method', choices=['SGD', 'Adam'], default='Adam')
     parser.add_argument('--learning_rate', type=float, default=5e-6)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--patience', type=float, default=5)
@@ -287,7 +288,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--show_size', type=int, default=64)
     parser.add_argument('--lambda_c', type=float, default=0.1)
-    parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'])
+    parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'], default='celeba')
     parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
     parser.add_argument('--enable_cuda', action='store_true')
     parser.add_argument('--model_path', type=str, default='../model')

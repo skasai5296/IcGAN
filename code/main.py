@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -165,9 +166,9 @@ def train(args):
             x_fake = gen(z, y_real)
             out = dis(x_fake, y_real)
             if not args.wgan:
-                fake_dis_loss2 = criterion(out, fake_label)
+                fake_dis_loss = criterion(out, fake_label)
             else:
-                fake_dis_loss2 = out.mean()
+                fake_dis_loss = out.mean()
             fake_dis_loss.backward()
             D_G_z1 = out.mean().detach()
 
@@ -238,8 +239,8 @@ def train(args):
             savedir = os.path.join(args.model_path, "{}/res_{}".format(args.dataset, args.residual))
             if not os.path.exists(savedir):
                 os.makedirs(savedir, exist_ok=True)
-            gen_pth = "gen_epoch_{}".format(ep+1)
-            dis_pth = "dis_epoch_{}".format(ep+1)
+            gen_pth = "gen_epoch_{}.ckpt".format(ep+1)
+            dis_pth = "dis_epoch_{}.ckpt".format(ep+1)
 
             torch.save(gen.state_dict(), os.path.join(savedir, gen_pth))
             torch.save(dis.state_dict(), os.path.join(savedir, dis_pth))
@@ -257,7 +258,7 @@ def train(args):
 
             '''save images based on fixed noise and labels, make attribute 1'''
             for i in range(fsize):
-                att = fixed_label
+                att = fixed_label.new_tensor(fixed_label.data())
                 att[:, i] = 1
                 img = gen(fixed_noise, att).detach().cpu()
                 grid = vutils.make_grid(img, normalize=True)
@@ -297,18 +298,18 @@ def main():
     parser.add_argument('--image_every', type=int, default=500)
     parser.add_argument('--save_model_every', type=int, default=5)
     parser.add_argument('--num_epoch', type=int, default=200)
-    parser.add_argument('--opt_method', choices=['SGD', 'Adam'])
+    parser.add_argument('--opt_method', choices=['SGD', 'Adam'], default='Adam')
     parser.add_argument('--learning_rate', type=float, default=5e-6)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--patience', type=float, default=5)
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--show_size', type=int, default=64)
-    parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'])
+    parser.add_argument('--dataset', choices=['celeba', 'sunattributes'], default='celeba')
     parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
     parser.add_argument('--enable_cuda', action='store_true')
-    parser.add_argument('--model_path', action='../model')
-    parser.add_argument('--output_path', action='../out')
+    parser.add_argument('--model_path', type=str, default='../model')
+    parser.add_argument('--output_path', type=str, default='../out')
     parser.add_argument('--nz', type=int, default=100)
     parser.add_argument('--residual', action='store_true')
     parser.add_argument('--wgan', action='store_true')
