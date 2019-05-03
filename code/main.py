@@ -258,7 +258,7 @@ def train(args):
 
             '''save images based on fixed noise and labels, make attribute 1'''
             for i in range(fsize):
-                att = fixed_label.new_tensor(fixed_label.data())
+                att = fixed_label.new_tensor(fixed_label.data)
                 att[:, i] = 1
                 img = gen(fixed_noise, att).detach().cpu()
                 grid = vutils.make_grid(img, normalize=True)
