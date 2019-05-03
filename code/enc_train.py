@@ -23,7 +23,7 @@ def train(args):
         log_name = "enc_lr{}".format(args.learning_rate)
         writer = SummaryWriter(log_dir=os.path.join('runs', log_name))
 
-    device = torch.device(args.cuda_device if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if args.enable_cuda and torch.cuda.is_available() else 'cpu')
 
     # transforms applied
     transform = transforms.Compose([
@@ -51,14 +51,14 @@ def train(args):
     # model, optimizer, criterion
     gen = Generator(in_c = args.nz + fsize)
     gen = gen.to(device)
-    MODELPATH = '../model/gen_epoch_{}.model'.format(args.model_ep)
+    MODELPATH = os.path.join(args.model_path, 'gen_epoch_{}.model'.format(args.model_ep))
     gen.load_state_dict(torch.load(MODELPATH))
 
     enc_y = Encoder(fsize).to(device)
     enc_z = Encoder(args.nz, for_y=False).to(device)
 
     attr = AttrEncoder().to(device)
-    ATTRPATH = '../model/atteval_epoch_{}.model'.format(args.attr_epoch)
+    ATTRPATH = os.path.join(args.model_path, "atteval_epoch_{}.model".format(args.attr_epoch))
     attr.load_state_dict(torch.load(ATTRPATH))
     attr.eval()
 
@@ -66,8 +66,14 @@ def train(args):
     enc_y.apply(init_weights)
     enc_z.apply(init_weights)
 
-    enc_y_optim = optim.Adam(enc_y.parameters(), lr=args.learning_rate, betas=args.betas)
-    enc_z_optim = optim.Adam(enc_z.parameters(), lr=args.learning_rate, betas=args.betas)
+    if args.opt_method == 'Adam':
+        enc_y_optim = optim.Adam(enc_y.parameters(), lr=args.learning_rate, betas=args.betas)
+        enc_z_optim = optim.Adam(enc_z.parameters(), lr=args.learning_rate, betas=args.betas)
+    if args.opt_method == 'SGD':
+        enc_y_optim = optim.SGD(enc_y.parameters(), lr=args.learning_rate, momentum=args.momentum)
+        enc_z_optim = optim.SGD(enc_z.parameters(), lr=args.learning_rate, momentum=args.momentum)
+        enc_y_scheduler = optim.lr_scheduler.ReduceLROnPlateau(enc_y_optim, patience=args.patience)
+        enc_z_scheduler = optim.lr_scheduler.ReduceLROnPlateau(enc_z_optim, patience=args.patience)
     criterion = nn.MSELoss()
 
     noise = torch.randn((args.batch_size, args.nz)).to(device)
@@ -108,11 +114,10 @@ def train(args):
             loss_y = l2loss.detach().cpu().item()
 
             '''training of identity encoder'''
-            # train on fake images generated with fake labels, target are original identities
+            # train on fake images generated with real labels, target are original identities
             enc_z.zero_grad()
-            dist = Bernoulli(torch.Tensor([0.5]))
-            y_fake = dist.sample(y.size()).squeeze().to(device)
-            x_fake = gen(noise, y_fake)
+            y_sample = randomsample(train_dataset, args.batch_size).to(device)
+            x_fake = gen(noise, y_sample)
             z_recon = enc_z(x_fake)
             l2loss2 = criterion(z_recon, noise)
             l2loss2.backward()
@@ -144,9 +149,11 @@ def train(args):
         if args.use_tensorboard:
             writer.add_text("epoch loss", "epoch [{}/{}] done | y loss: {:.6f} \t z loss: {:.6f}]".format(ep+1, args.num_epoch, YLoss, ZLoss), ep+1)
 
+        savepath = os.path.join(args.model_path, "{}/res_{}".format(args.dataset, args.residual))
         try:
-            torch.save(enc_y.state_dict(), "../model/enc_y_epoch_{}.model".format(ep+1))
-            torch.save(enc_z.state_dict(), "../model/enc_z_epoch_{}.model".format(ep+1))
+            torch.save(os.path.join(savepath, "enc_y_epoch_{}.ckpt".format(ep+1)))
+            torch.save(os.path.join(savepath, "enc_z_epoch_{}.ckpt".format(ep+1)))
+            print("saved encoder model at {}".format(savepath))
         except OSError:
             print("failed to save model for epoch {}".format(ep+1))
 
@@ -154,7 +161,8 @@ def train(args):
             # reconstruction and attribute transfer of images
             enc_y.eval()
             enc_z.eval()
-            SAVEPATH = '../out/enc_epoch-{}'.format(ep+1)
+            outpath = os.path.join(args.output_path, "{}/res_{}".format(args.dataset, args.residual))
+            SAVEPATH = os.path.join(outpath, 'enc_epoch_{}'.format(ep+1))
             if not os.path.exists(SAVEPATH):
                 os.mkdir(SAVEPATH)
 
@@ -218,17 +226,24 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', action='store_true')
     parser.add_argument('--image_size', type=int, default=64)
-    parser.add_argument('--recon_every', type=int, default=1)
-    parser.add_argument('--log_every', type=int, default=50)
-    parser.add_argument('--num_epoch', type=int, default=50)
+    parser.add_argument('--recon_every', type=int, default=5)
+    parser.add_argument('--log_every', type=int, default=10)
+    parser.add_argument('--num_epoch', type=int, default=100)
+    parser.add_argument('--opt_method', choices=['SGD', 'Adam'], default='SGD')
     parser.add_argument('--learning_rate', type=float, default=1e-2)
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
+    parser.add_argument('--momentum', type=tuple, default=0.9)
+    parser.add_argument('--patience', type=tuple, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--show_size', type=int, default=64)
+    parser.add_argument('--dataset', choices=['celeba', 'sunattributes'], default='celeba')
     parser.add_argument('--root_dir', type=str, default='../../../local/CelebA/')
     parser.add_argument('--img_dir', type=str, default='img_align_celeba')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
-    parser.add_argument('--cuda_device', type=str, default='cuda')
+    parser.add_argument('--enable_cuda', action='store_true')
+    parser.add_argument('--residual', action='store_true')
+    parser.add_argument('--model_path', type=str, default='../model')
+    parser.add_argument('--output_path', type=str, default='../out')
     parser.add_argument('--model_ep', type=int, default=50)
     parser.add_argument('--nz', type=int, default=100)
     parser.add_argument('--attr_epoch', type=int, default=8)

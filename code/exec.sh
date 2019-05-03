@@ -5,3 +5,5 @@ env CUDA_VISIBLE_DEVICES=0 nohup python main.py --use_tensorboard --enable_cuda 
 # env CUDA_VISIBLE_DEVICES=0 nohup python acgan.py --use_tensorboard --enable_cuda --learning_rate 1e-5 --opt_method Adam --nz 100 --dataset celeba --root_dir ../../dsets/CelebA/ --num_epoch 500 --batch_size 256 --image_size 64  > ../logs/cls_celeba_nz100_64_lr1e-5.log &!
 
 # env CUDA_VISIBLE_DEVICES=0 nohup python acgan.py --use_tensorboard --enable_cuda --learning_rate 1e-5 --opt_method Adam --nz 100 --dataset celeba --root_dir ../../../hdd/dsets/CelebA/ --num_epoch 500 --batch_size 256 --image_size 64  > ../logs/cls_celeba_nz100_64_lr1e-5.log &!
+
+# env CUDA_VISIBLE_DEVICES=0 nohup python enc_train.py --use_tensorboard --enable_cuda --learning_rate 1e-3 --opt_method SGD --nz 128 --dataset celeba --root_dir ../../../hdd/dsets/CelebA/ --num_epoch 100 --batch_size 128 --image_size 64 --model_ep 100 --attr_epoch 10 > ../logs/enc_celeba_nz128_64_lr1e-3.log &!
