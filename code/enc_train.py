@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 
 from dataset import DeepFashion, CelebA, collate_fn, randomsample
 from model import Generator, Discriminator, Encoder, init_weights, AttrEncoder
-from evaluator import eval, eval_im
+from langeval import eval, eval_im
 
 def train(args):
     if args.use_tensorboard:
@@ -51,16 +51,19 @@ def train(args):
     # model, optimizer, criterion
     gen = Generator(in_c = args.nz + fsize)
     gen = gen.to(device)
-    MODELPATH = os.path.join(args.model_path, 'gen_epoch_{}.model'.format(args.model_ep))
+    modeldir = os.path.join(args.model_path, "{}/res_{}".format(args.dataset, args.residual))
+    MODELPATH = os.path.join(modeldir, 'gen_epoch_{}.ckpt'.format(args.model_ep))
     gen.load_state_dict(torch.load(MODELPATH))
 
     enc_y = Encoder(fsize).to(device)
     enc_z = Encoder(args.nz, for_y=False).to(device)
 
+    """
     attr = AttrEncoder().to(device)
-    ATTRPATH = os.path.join(args.model_path, "atteval_epoch_{}.model".format(args.attr_epoch))
+    ATTRPATH = os.path.join(args.model_path, "atteval_epoch_{}.ckpt".format(args.attr_epoch))
     attr.load_state_dict(torch.load(ATTRPATH))
     attr.eval()
+    """
 
     # initialize weights for encoders
     enc_y.apply(init_weights)
@@ -83,12 +86,10 @@ def train(args):
     print("begin training, lr={}".format(args.learning_rate), flush=True)
     stepcnt = 0
     gen.eval()
-    
+    enc_y.train()
+    enc_z.train()
 
     for ep in range(args.num_epoch):
-
-        enc_y.train()
-        enc_z.train()
 
         YLoss = 0
         ZLoss = 0
@@ -117,7 +118,8 @@ def train(args):
             # train on fake images generated with real labels, target are original identities
             enc_z.zero_grad()
             y_sample = randomsample(train_dataset, args.batch_size).to(device)
-            x_fake = gen(noise, y_sample)
+            with torch.no_grad():
+                x_fake = gen(noise, y_sample)
             z_recon = enc_z(x_fake)
             l2loss2 = criterion(z_recon, noise)
             l2loss2.backward()
@@ -151,50 +153,54 @@ def train(args):
 
         savepath = os.path.join(args.model_path, "{}/res_{}".format(args.dataset, args.residual))
         try:
-            torch.save(os.path.join(savepath, "enc_y_epoch_{}.ckpt".format(ep+1)))
-            torch.save(os.path.join(savepath, "enc_z_epoch_{}.ckpt".format(ep+1)))
+            torch.save(enc_y.state_dict(), os.path.join(savepath, "enc_y_epoch_{}.ckpt".format(ep+1)))
+            torch.save(enc_z.state_dict(), os.path.join(savepath, "enc_z_epoch_{}.ckpt".format(ep+1)))
             print("saved encoder model at {}".format(savepath))
         except OSError:
             print("failed to save model for epoch {}".format(ep+1))
 
         if ep % args.recon_every == (args.recon_every - 1):
             # reconstruction and attribute transfer of images
-            enc_y.eval()
-            enc_z.eval()
             outpath = os.path.join(args.output_path, "{}/res_{}".format(args.dataset, args.residual))
             SAVEPATH = os.path.join(outpath, 'enc_epoch_{}'.format(ep+1))
             if not os.path.exists(SAVEPATH):
                 os.mkdir(SAVEPATH)
 
-            for sample in testloader:
-                im = sample['image']
-                grid = vutils.make_grid(im, normalize=True)
-                vutils.save_image(grid, os.path.join(SAVEPATH, 'original.png'))
-                im = im.to(device)
-                y = enc_y(im)
-                z = enc_z(im)
-                im = gen(z, y)
-                y_h = attr(im)
-                recon = im.cpu()
-                grid = vutils.make_grid(recon, normalize=True)
-                vutils.save_image(grid, os.path.join(SAVEPATH, 'recon.png'))
+            with torch.no_grad():
+                for sample in testloader:
+                    im = sample['image']
+                    grid = vutils.make_grid(im, normalize=True)
+                    vutils.save_image(grid, os.path.join(SAVEPATH, 'original.png'))
+                    im = im.to(device)
+                    y = enc_y(im)
+                    z = enc_z(im)
+                    im = gen(z, y)
+                    """
+                    y_h = attr(im)
+                    """
+                    recon = im.cpu()
+                    grid = vutils.make_grid(recon, normalize=True)
+                    vutils.save_image(grid, os.path.join(SAVEPATH, 'recon.png'))
+                    break
 
-                CNT = 0
-                ALLCNT = 0
-                for idx in range(fsize):
-                    fname = attnames[idx]
-                    y_p_h = y_h.clone()
-                    for i in range(args.show_size):
-                        y_p_h[i, idx] = 0 if y_p_h[i, idx] == 1 else 1
-                    out = gen(z, y_p_h)
-                    trans = out.cpu()
-                    grid2 = vutils.make_grid(trans, normalize=True)
-                    vutils.save_image(grid2, os.path.join(SAVEPATH, '{}.png'.format(fname)))
-                    cnt, allcnt = eval_im(attr, out, y_p_h)
-                    CNT += cnt
-                    ALLCNT += allcnt
-                break
+                    """
+                    CNT = 0
+                    ALLCNT = 0
+                    for idx in range(fsize):
+                        fname = attnames[idx]
+                        y_p_h = y_h.clone()
+                        for i in range(args.show_size):
+                            y_p_h[i, idx] = 0 if y_p_h[i, idx] == 1 else 1
+                        out = gen(z, y_p_h)
+                        trans = out.cpu()
+                        grid2 = vutils.make_grid(trans, normalize=True)
+                        vutils.save_image(grid2, os.path.join(SAVEPATH, '{}.png'.format(fname)))
+                        cnt, allcnt = eval_im(attr, out, y_p_h)
+                        CNT += cnt
+                        ALLCNT += allcnt
+                    break
             print("epoch {} for encoder, acc: {:.03}%".format(ep+1, CNT / ALLCNT * 100), flush=True)
+                    """
 
 
 
@@ -226,7 +232,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', action='store_true')
     parser.add_argument('--image_size', type=int, default=64)
-    parser.add_argument('--recon_every', type=int, default=5)
+    parser.add_argument('--recon_every', type=int, default=1)
     parser.add_argument('--log_every', type=int, default=10)
     parser.add_argument('--num_epoch', type=int, default=100)
     parser.add_argument('--opt_method', choices=['SGD', 'Adam'], default='SGD')

@@ -89,21 +89,21 @@ class Encoder(nn.Module):
     '''
     def __init__(self, ftnum, for_y=True):
         super(Encoder, self).__init__()
+        self.model = nn.Sequential(
+                Conv(3, 32, ksize=5, padding=2),
+                Normalization(32),
+                Activation(),
+                Conv(32, 64, ksize=5, padding=2),
+                Normalization(64),
+                Activation(),
+                Conv(64, 128, ksize=5, padding=2),
+                Normalization(128),
+                Activation(),
+                Conv(128, 256, ksize=5, padding=2),
+                Normalization(256),
+                Activation(),
+                )
         if for_y:
-            self.model = nn.Sequential(
-                    Conv(3, 32, ksize=5, padding=2),
-                    Normalization(32),
-                    Activation(),
-                    Conv(32, 64, ksize=5, padding=2),
-                    Normalization(64),
-                    Activation(),
-                    Conv(64, 128, ksize=5, padding=2),
-                    Normalization(128),
-                    Activation(),
-                    Conv(128, 256, ksize=5, padding=2),
-                    Normalization(256),
-                    Activation(),
-                    )
             self.linear = nn.Sequential(
                     Dense(256*4*4, 512),
                     Normalization(512, dim=1),
@@ -113,20 +113,6 @@ class Encoder(nn.Module):
                     )
 
         else:
-            self.model = nn.Sequential(
-                    Conv(3, 32, ksize=5, padding=2),
-                    Normalization(32),
-                    Activation(),
-                    Conv(32, 64, ksize=5, padding=2),
-                    Normalization(64),
-                    Activation(),
-                    Conv(64, 128, ksize=5, padding=2),
-                    Normalization(128),
-                    Activation(),
-                    Conv(128, 256, ksize=5, padding=2),
-                    Normalization(256),
-                    Activation(),
-                    )
             self.linear = nn.Sequential(
                     Dense(256*4*4, 4096),
                     Normalization(4096, dim=1),

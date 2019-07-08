@@ -58,21 +58,23 @@ def train(args):
     ])
 
     if args.dataset == 'celeba':
-        img_dir = 'img_align_celeba'
+        img_dir = 'cropped'
         ann_dir = 'list_attr_celeba.csv'
-        train_dataset = CelebA(args.root_dir, img_dir, ann_dir, transform=transform, train=False)
+        train_dataset = CelebA(args.root_dir, img_dir, ann_dir, transform=transform, train=True)
+        test_dataset = CelebA(args.root_dir, img_dir, ann_dir, transform=transform, train=False)
         attnames = list(train_dataset.df.columns)[1:]
     elif args.dataset == 'sunattributes':
-        img_dir = 'images'
+        img_dir = 'cropped'
         ann_dir = 'SUNAttributeDB'
-        train_dataset = SUN_Attributes(args.root_dir, img_dir, ann_dir, transform=transform, train=False)
+        train_dataset = SUN_Attributes(args.root_dir, img_dir, ann_dir, transform=transform, train=True)
+        test_dataset = SUN_Attributes(args.root_dir, img_dir, ann_dir, transform=transform, train=False)
         attnames = train_dataset.attrnames
     else:
         raise NotImplementedError()
 
     fsize = train_dataset.feature_size
 
-    testloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+    trainloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
     testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
 
     '''
@@ -87,14 +89,14 @@ def train(args):
     else:
         gen = Generator(in_c = args.nz + fsize)
         dis = Discriminator(ny=fsize)
-    MODELPATH = '../model/gen_epoch_{}_{}.model'.format(args.model_ep, args.residual)
+    MODELPATH = '../model/celeba/res_False/gen_epoch_{}.ckpt'.format(args.model_ep)
     gen.load_state_dict(torch.load(MODELPATH))
 
     enc_y = Encoder(fsize).to(device)
-    MODELPATH = '../model/enc_y_epoch_{}.model'.format(args.enc_ep)
+    MODELPATH = '../model/celeba/res_False/enc_y_epoch_{}.ckpt'.format(args.enc_ep)
     enc_y.load_state_dict(torch.load(MODELPATH))
     enc_z = Encoder(args.nz, for_y=False).to(device)
-    MODELPATH = '../model/enc_y_epoch_{}.model'.format(args.enc_ep)
+    MODELPATH = '../model/celeba/res_False/enc_y_epoch_{}.ckpt'.format(args.enc_ep)
     enc_z.load_state_dict(torch.load(MODELPATH))
 
     gen.eval()
@@ -152,17 +154,19 @@ def train(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--use_tensorboard', action='store_true')
-    parser.add_argument('--image_size', type=int, default=224)
-    parser.add_argument('--model_ep', type=int, default=200)
+    parser.add_argument('--image_size', type=int, default=64)
+    parser.add_argument('--model_ep', type=int, default=100)
+    parser.add_argument('--enc_ep', type=int, default=20)
     parser.add_argument('--log_every', type=int, default=10)
     parser.add_argument('--image_every', type=int, default=500)
     parser.add_argument('--save_every', type=int, default=2)
-    parser.add_argument('--num_epoch', type=int, default=200)
+    parser.add_argument('--num_epoch', type=int, default=30)
     parser.add_argument('--betas', type=tuple, default=(0.5, 0.999))
     parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--show_size', type=int, default=64)
     parser.add_argument('--dataset', dest='dataset', choices=['celeba', 'sunattributes'])
-    parser.add_argument('--root_dir', type=str, default='../../dsets/CelebA/')
+    parser.add_argument('--root_dir', type=str, default='../../../hdd/dsets/CelebA/')
     parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
     parser.add_argument('--enable_cuda', action='store_true')
     parser.add_argument('--nz', type=int, default=100)
@@ -174,4 +178,4 @@ def main():
     train(args)
 
 if __name__ == '__main__':
-    m
+    main()

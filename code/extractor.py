@@ -171,123 +171,124 @@ def load_vectors(picklepath):
     print('Done loading pickled data, {}s taken'.format(time.time() - before), flush=True)
     return data
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--impath', type=str, default='../../../local/CelebA/img_align_celeba/202599.jpg')
-parser.add_argument('--nz', type=int, default=100)
-parser.add_argument('--enc_y_path', type=str, default='../model/enc_y_epoch_30.model')
-parser.add_argument('--enc_z_path', type=str, default='../model/enc_z_epoch_30.model')
-parser.add_argument('--gen_path', type=str, default='../model/gen_epoch_60.model')
-parser.add_argument('--save_path', type=str, default='../out/transfer/')
-parser.add_argument('--show_size', type=int, default=64)
-parser.add_argument('--root_dir', type=str, default='../../../local/CelebA/')
-parser.add_argument('--img_dir', type=str, default='img_align_celeba')
-parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
-args = parser.parse_args()
 
-'''load vectors from path'''
-path = '''../corpus/crawl-300d-2M-subword.vec'''
-picklepath = '''../corpus/embeddings.pkl'''
-if not os.path.exists(picklepath):
-    save_vectors(path, picklepath)
-data = load_vectors(picklepath)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--impath', type=str, default='../../../hdd/dsets/CelebA/cropped/202599.jpg')
+    parser.add_argument('--nz', type=int, default=128)
+    parser.add_argument('--enc_y_path', type=str, default='../model/celeba/res_False/enc_y_epoch_30.ckpt')
+    parser.add_argument('--enc_z_path', type=str, default='../model/celeba/res_False/enc_z_epoch_30.ckpt')
+    parser.add_argument('--gen_path', type=str, default='../model/celeba/res_False/gen_epoch_60.ckpt')
+    parser.add_argument('--save_path', type=str, default='../out/transfer/')
+    parser.add_argument('--show_size', type=int, default=64)
+    parser.add_argument('--root_dir', type=str, default='../../../hdd/dsets/CelebA/')
+    parser.add_argument('--img_dir', type=str, default='cropped')
+    parser.add_argument('--ann_dir', type=str, default='list_attr_celeba.csv')
+    args = parser.parse_args()
 
-attrs = Attributes()
-attributes, descriptions, descriptions_n, ftnum = attrs.get_attributes_descriptions('''attributes.txt''')
+    '''load vectors from path'''
+    path = '''../corpus/crawl-300d-2M-subword.vec'''
+    picklepath = '''../corpus/embeddings.pkl'''
+    if not os.path.exists(picklepath):
+        save_vectors(path, picklepath)
+    data = load_vectors(picklepath)
 
-a = []
+    attrs = Attributes()
+    attributes, descriptions, descriptions_n, ftnum = attrs.get_attributes_descriptions('''attributes.txt''')
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    a = []
 
-enc_y = Encoder(ftnum, for_y=True)
-enc_z = Encoder(args.nz, for_y=False)
-gen = Generator(ftnum+args.nz)
-enc_y = enc_y.to(device)
-enc_z = enc_z.to(device)
-gen = gen.to(device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-enc_y.load_state_dict(torch.load(args.enc_y_path))
-enc_z.load_state_dict(torch.load(args.enc_z_path))
-gen.load_state_dict(torch.load(args.gen_path))
+    enc_y = Encoder(ftnum, for_y=True)
+    enc_z = Encoder(args.nz, for_y=False)
+    gen = Generator(ftnum+args.nz)
+    enc_y = enc_y.to(device)
+    enc_z = enc_z.to(device)
+    gen = gen.to(device)
 
-enc_y.eval()
-enc_z.eval()
-gen.eval()
+    enc_y.load_state_dict(torch.load(args.enc_y_path))
+    enc_z.load_state_dict(torch.load(args.enc_z_path))
+    gen.load_state_dict(torch.load(args.gen_path))
 
-transform = transforms.Compose([
-    transforms.Resize((64, 64)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-])
+    enc_y.eval()
+    enc_z.eval()
+    gen.eval()
 
-test_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform, train=False)
-testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
-for i in testloader:
-    sample = i
-    break
-im = sample['image']
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    ])
 
-
-grid = vutils.make_grid(im, normalize=True)
-for i in range(100):
-    pth = glob.glob(os.path.join(args.save_path, 'im_{}'.format(i)) + '*.jpg')
-    if not pth:
-        imcnt = i
+    test_dataset = CelebA(args.root_dir, args.img_dir, args.ann_dir, transform=transform, train=False)
+    testloader = DataLoader(test_dataset, batch_size=args.show_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+    for i in testloader:
+        sample = i
         break
-vutils.save_image(grid, args.save_path + 'im{}_0_original.jpg'.format(imcnt))
+    im = sample['image']
 
-im = im.to(device)
 
-y = enc_y(im)
-z = enc_z(im)
-del enc_z
-del enc_y
-torch.cuda.empty_cache()
+    grid = vutils.make_grid(im, normalize=True)
+    for i in range(100):
+        if not os.path.exists(os.path.join(args.save_path, str(i))):
+            os.makedirs(os.path.join(args.save_path, str(i)))
+            imcnt = i
+            break
+    vutils.save_image(grid, os.path.join(args.save_path, str(imcnt), 'im_0_original.jpg'))
 
-num = 1
-while True:
+    im = im.to(device)
 
-    command = Command()
+    y = enc_y(im)
+    z = enc_z(im)
+    del enc_z
+    del enc_y
+    torch.cuda.empty_cache()
+
+    num = 1
+    while True:
+
+        command = Command()
+        if not command.flag:
+            break
+        word, pos = command.pos_tag_sequence()
+        a.append(word)
+        a.append(pos)
+        att, des = command.get_attributes_descriptions()
+        cnt = 0
+        minidx = []
+        cosine = np.full((ftnum, ), -1)
+        maxcos = np.max(cosine)
+        for i, attr in enumerate(attributes):
+            if cosine[i] > maxcos-0.1:
+                minidx.append(i)
+                if cosine[i] == maxcos:
+                    minattr = attr
+        print('attribute {} to be modified'.format(minattr), flush=True)
+
+        for i in minidx:
+            cp = cosine_sim(data, des, descriptions[i])
+            cn = cosine_sim(data, des, descriptions_n[i])
+            if cp > cn+0.1:
+                y[:, i] = 1
+                print('direction {}'.format(descriptions[i]), flush=True)
+            elif cn > cp+0.1:
+                y[:, i] = 0
+                print('direction {}'.format(descriptions_n[i]), flush=True)
+            else: 
+                print('no change', flush=True)
+            cnt += 1
+
+        result = gen(z, y)
+        result = result.detach().cpu()
+        grid = vutils.make_grid(result, normalize=True)
+        vutils.save_image(grid, os.path.join(args.save_path, str(imcnt), 'im_{}_{}.jpg'.format(num, command.command)))
+        print('saved image, {}th modification'.format(num))
+        num += 1
+
+
     if not command.flag:
-        break
-    word, pos = command.pos_tag_sequence()
-    a.append(word)
-    a.append(pos)
-    att, des = command.get_attributes_descriptions()
-    cnt = 0
-    minidx = []
-    cosine = np.full((ftnum, ), -1)
-    maxcos = np.max(cosine)
-    for i, attr in enumerate(attributes):
-        if cosine[i] > maxcos-0.1:
-            minidx.append(i)
-            if cosine[i] == maxcos:
-                minattr = attr
-    print('attribute {} to be modified'.format(minattr), flush=True)
-
-    for i in minidx:
-        cp = cosine_sim(data, des, descriptions[i])
-        cn = cosine_sim(data, des, descriptions_n[i])
-        if cp > cn+0.1:
-            y[:, i] = 1
-            print('direction {}'.format(descriptions[i]), flush=True)
-        elif cn > cp+0.1:
-            y[:, i] = 0
-            print('direction {}'.format(descriptions_n[i]), flush=True)
-        else: 
-            print('no change', flush=True)
-        cnt += 1
-
-    result = gen(z, y)
-    result = result.detach().cpu()
-    grid = vutils.make_grid(result, normalize=True)
-    vutils.save_image(grid, args.save_path + 'im{}_{}_{}.jpg'.format(imcnt, num, command.command))
-    print('saved image, {}th modification'.format(num))
-    num += 1
-
-
-
-if not command.flag:
-    print(a)
+        print(a)
 
 
 

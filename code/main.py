@@ -56,7 +56,7 @@ def train(args):
 
     # dataset and dataloader for training
     if args.dataset == 'celeba':
-        img_dir = 'img_align_celeba'
+        img_dir = 'cropped'
         ann_dir = 'list_attr_celeba.csv'
         train_dataset = CelebA(args.root_dir, img_dir, ann_dir, transform=transform)
         attnames = list(train_dataset.df.columns)[1:]
@@ -321,3 +321,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
